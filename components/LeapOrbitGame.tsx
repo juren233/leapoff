@@ -2,15 +2,15 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType } from '../types';
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle } from 'lucide-react';
 
-const GAME_VERSION = "v5.3-GravityControl";
+const GAME_VERSION = "v5.4-PhysicsTuned";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
   baseRadius: 100,
-  accelOut: 0.8,
-  gravity: 0.15, // 2. 引力调小 (原 0.5)
-  drag: 0.98,    // 阻力稍微减小一点，让飞得更远
-  rotSpeed: 0.020, // 1. 转动速度调慢 (原 0.022)
+  accelOut: 0.45, // 2. 减小主动加速力度 (让主动跳跃没那么猛)
+  gravity: 0.20,  // 2. 引力微调回 0.20，配合阻尼防止飘太高
+  drag: 0.95,     // 2. 阻力加大 (0.98 -> 0.95)，增加"阻尼感"，速度衰减更快
+  rotSpeed: 0.014, // 1. 转速大幅调慢 (0.020 -> 0.014)
   size: 14,
   trailLength: 25,
 };
@@ -245,13 +245,13 @@ export const LeapOrbitGame: React.FC = () => {
     // 1. 只有按住时才转动
     if (isPressing.current) {
       player.angle += player.rotSpeed; // 转动
-      player.rVelocity += 0.6;         // 向外加速
+      player.rVelocity += PLAYER_CONFIG.accelOut; // 主动加速 (力度已减小)
     } else {
       // 松开时不转动
       player.rVelocity -= player.gravity; // 受重力下落
     }
 
-    player.rVelocity *= player.drag;
+    player.rVelocity *= player.drag; // 空气阻力 (已加大，提供阻尼感)
     player.radius += player.rVelocity;
 
     // 下界限制与反弹
@@ -373,9 +373,13 @@ export const LeapOrbitGame: React.FC = () => {
           scoreRef.current += 1;
           createExplosion(ex, ey, 'white', 8, 8);
           
-          // 5. 吃到光点的弹力加大 (原 6.0 -> 9.0)
-          const boost = 9.0; 
-          player.rVelocity = Math.max(player.rVelocity + boost, boost);
+          // 5. 吃到光点的弹力 (动态加大)
+          // 基础弹力 12 (很大)，并且随着距离增加而增加
+          const baseBoost = 12.0; 
+          const distanceBoost = player.radius / 400; // 每飞出 400px，弹力 +1
+          const totalBoost = baseBoost + distanceBoost;
+
+          player.rVelocity = Math.max(player.rVelocity + totalBoost, totalBoost);
           
           entitiesRef.current.splice(i, 1);
           
