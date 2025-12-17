@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType, FloatingText } from '../types';
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target } from 'lucide-react';
 
-const GAME_VERSION = "v7.0.1-FinalPolish";
+const GAME_VERSION = "v7.1.3-EffectsRestored";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -223,6 +223,9 @@ export const LeapOrbitGame: React.FC = () => {
         if (r < 0.33) type = 'shield';
         else if (r < 0.66) type = 'magnet';
         else type = 'dash';
+        
+        // 【禁区强化】在内圈生成的环境杂物中，禁止磁铁 (Double check)
+        if (type === 'magnet') type = 'score';
     }
     const entity: Entity = {
         id: entityIdCounter.current++,
@@ -287,8 +290,8 @@ export const LeapOrbitGame: React.FC = () => {
     if (baseSpawn > MAX_ALTITUDE) return;
     const spawnDist = randomRange(baseSpawn, ceilingSpawn);
     
-    // 【强化禁区】磁铁不能生成在中心附近，防止吸走保命圈
-    if (type === 'magnet' && spawnDist < PLAYER_CONFIG.baseRadius + 500) type = 'score';
+    // 【强化禁区】磁铁不能生成在中心附近，防止吸走保命圈 (范围扩大到600)
+    if (type === 'magnet' && spawnDist < PLAYER_CONFIG.baseRadius + 600) type = 'score';
     
     const ENEMY_SAFE_DIST = PLAYER_CONFIG.baseRadius + 300;
     if (type === 'enemy' && spawnDist < ENEMY_SAFE_DIST) type = 'score';
@@ -490,6 +493,7 @@ export const LeapOrbitGame: React.FC = () => {
       if (isDirectHit || magnetSucked) {
         if (e.type === 'score') {
           actionScoreRef.current += 10; 
+          // 【特效恢复】：确保保留吃分特效
           createExplosion(ex, ey, 'white', 8, 8);
           spawnFloatingText(ex, ey, "+10", "#ffffff"); 
           if (hasMagnet) {
@@ -528,13 +532,18 @@ export const LeapOrbitGame: React.FC = () => {
           }
           entitiesRef.current.splice(i, 1);
         } else if (e.type === 'enemy' && isDirectHit) {
-            if (hasShield || hasDash) {
-                createExplosion(ex, ey, COLORS.enemy, 20); createShockwave(ex, ey, COLORS.enemy);
+            // 【核心修复】：只要有向外的速度（rVelocity > 0），即视为攻击状态，可爆破敌人
+            if (hasShield || hasDash || player.rVelocity > 0) {
+                createExplosion(ex, ey, COLORS.enemy, 20); 
+                createShockwave(ex, ey, COLORS.enemy);
                 spawnFloatingText(ex, ey, "+50", COLORS.enemy, 32);
-                shake.current = 10; entitiesRef.current.splice(i, 1);
+                shake.current = 10; 
+                entitiesRef.current.splice(i, 1);
                 actionScoreRef.current += 50; 
             } else {
-                createExplosion(player.x, player.y, COLORS.player, 30); handleGameOver();
+                // 仅在轨道方向(速度接近0)或向内掉落(速度<0)时死亡
+                createExplosion(player.x, player.y, COLORS.player, 30); 
+                handleGameOver();
             }
         }
       }
@@ -606,12 +615,26 @@ export const LeapOrbitGame: React.FC = () => {
         ctx.restore();
     });
     particlesRef.current.forEach(p => { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1.0; });
-    floatingTextsRef.current.forEach(ft => { ctx.globalAlpha = Math.max(0, ft.life); ctx.fillStyle = ft.color; ctx.font = `bold ${ft.size}px monospace`; ctx.textAlign = 'center'; ctx.fillText(ft.text, ft.x, ft.y); });
+    floatingTextsRef.current.forEach(ft => { 
+        ctx.globalAlpha = Math.max(0, ft.life); 
+        ctx.fillStyle = ft.color; 
+        ctx.font = `bold ${ft.size}px monospace`; 
+        ctx.textAlign = 'center'; 
+        ctx.fillText(ft.text, ft.x, ft.y); 
+    });
+    // 【关键修复】：绘制完文字后强制重置 Alpha，防止污染后续绘制（玩家小球）
+    ctx.globalAlpha = 1.0;
 
     if (gameStateRef.current !== 'GAMEOVER') {
         if (player.radius < 3000) { ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(player.x, player.y); ctx.strokeStyle = `rgba(0, 210, 255, ${Math.max(0, (0.2 - player.radius / 3000))})`; ctx.stroke(); }
         if (player.trail.length > 1) { ctx.beginPath(); ctx.moveTo(player.trail[0].x, player.trail[0].y); player.trail.forEach(t => ctx.lineTo(t.x, t.y)); ctx.strokeStyle = player.dashTime > 0 ? COLORS.dash : player.color; ctx.lineWidth = player.size * (player.dashTime > 0 ? 1.5 : 0.8); ctx.stroke(); }
-        ctx.beginPath(); ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2); ctx.fillStyle = player.dashTime > 0 ? '#fff' : player.color; ctx.fill();
+        
+        // 【视觉保持】：玩家小球持续稳定显示，不闪烁
+        ctx.beginPath(); 
+        ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2); 
+        ctx.fillStyle = player.dashTime > 0 ? '#fff' : player.color; 
+        ctx.fill();
+        
         if (player.shieldTime > 0) { ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 8, 0, Math.PI * 2); ctx.strokeStyle = `rgba(0, 255, 0, ${0.4 + Math.sin(Date.now() / 100) * 0.4})`; ctx.stroke(); }
         if (player.dashTime > 0) { ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 12, 0, Math.PI * 2); ctx.strokeStyle = `rgba(249, 115, 22, 0.8)`; ctx.stroke(); }
     }
@@ -711,8 +734,8 @@ export const LeapOrbitGame: React.FC = () => {
                     <span className="text-xs text-slate-500 font-mono mb-8 block">{GAME_VERSION}</span>
                     <div className="space-y-4 mb-8 text-sm text-slate-300">
                         <p><span className="text-cyan-400 font-bold">综合计分</span>：光点 + 生存 + 圈数奖励</p>
-                        <p><span className="text-white font-bold">撞击光点</span>：获得动力弹射并提升得分</p>
-                        <p><span className="text-orange-400 font-bold">高圈数</span>：获得强力的全局分数倍率加成</p>
+                        <p><span className="text-white font-bold">弹射反击</span>：获得动力弹射，利用惯性撞毁敌人</p>
+                        <p><span className="text-orange-400 font-bold">禁区保护</span>：磁铁不会生成在中心附近</p>
                     </div>
                     <button onClick={startGame} className="group relative px-8 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-full transition-all hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(8,145,178,0.5)] flex items-center gap-2 mx-auto">
                         <Play size={20} className="fill-current" /> 开始游戏
