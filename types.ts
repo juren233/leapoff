@@ -1,4 +1,4 @@
-export type EntityType = 'score' | 'enemy' | 'shield' | 'magnet';
+export type EntityType = 'score' | 'enemy' | 'shield' | 'magnet' | 'nuke';
 
 export interface Point {
   x: number;
@@ -46,6 +46,15 @@ export interface Particle {
   life: number;
   color: string;
   size: number;
+}
+
+export interface Shockwave {
+  x: number;
+  y: number;
+  radius: number;
+  maxRadius: number;
+  life: number; // 1.0 to 0.0
+  color: string;
 }
 
 export interface GameState {

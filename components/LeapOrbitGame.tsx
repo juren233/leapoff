@@ -1,17 +1,17 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Player, Entity, Particle, EntityType } from '../types';
-import { Shield, Zap, Skull, Trophy, Play, RefreshCw } from 'lucide-react';
+import { Player, Entity, Particle, Shockwave, EntityType } from '../types';
+import { Shield, Zap, Skull, Trophy, Play, RefreshCw, Bomb } from 'lucide-react';
 
-const GAME_VERSION = "v4.2-CN";
+const GAME_VERSION = "v4.3-BalanceFix";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
   baseRadius: 60,
   leapLimit: 280,
-  accelOut: 1.3, // Slightly snappier
-  gravity: 0.6, // Slightly heavier for faster returns
+  accelOut: 1.3, 
+  gravity: 0.6, 
   drag: 0.94,
-  rotSpeed: 0.04, // Slightly faster rotation
+  rotSpeed: 0.04, 
   size: 14,
   trailLength: 20,
 };
@@ -22,6 +22,7 @@ const COLORS = {
   score: '#ffffff',
   shield: '#00ff00',
   magnet: '#bf00ff',
+  nuke: '#facc15', // Yellow
   background: '#1a1a1a',
   grid: '#333333'
 };
@@ -45,7 +46,6 @@ export const LeapOrbitGame: React.FC = () => {
   const [buffs, setBuffs] = useState({ shield: false, magnet: false });
 
   // --- Mutable Game State (Refs for performance) ---
-  // We use refs for all game logic to avoid React render cycle dependencies in the game loop
   const gameStateRef = useRef<'START' | 'PLAYING' | 'GAMEOVER'>('START');
   const scoreRef = useRef(0);
   
@@ -75,6 +75,7 @@ export const LeapOrbitGame: React.FC = () => {
 
   const entitiesRef = useRef<Entity[]>([]);
   const particlesRef = useRef<Particle[]>([]);
+  const shockwavesRef = useRef<Shockwave[]>([]); // New visual effect
   const starsRef = useRef<Star[]>([]);
   const entityIdCounter = useRef(0);
 
@@ -109,28 +110,50 @@ export const LeapOrbitGame: React.FC = () => {
       });
     }
   };
+  
+  const createShockwave = (x: number, y: number, color: string) => {
+    shockwavesRef.current.push({
+        x, 
+        y,
+        radius: 10,
+        maxRadius: 300,
+        life: 1.0,
+        color
+    });
+  };
 
+  // --- 重构的生成逻辑：解决后期无光点的问题 ---
   const spawnEntity = () => {
-    if (entitiesRef.current.length > 20) return;
+    // 稍微提高总实体上限
+    if (entitiesRef.current.length > 25) return;
+
+    // 每帧有 18% 概率尝试生成 (约每秒 10-12 个)
+    if (Math.random() > 0.18) return;
 
     const currentScore = scoreRef.current;
     const r = Math.random();
     let type: EntityType = 'score';
 
-    // Difficulty scaling: More enemies as score increases
-    const enemyChance = Math.min(0.08 + (currentScore * 0.0008), 0.25); 
-    
-    if (r < 0.005) type = 'shield';
-    else if (r < 0.012) type = 'magnet';
-    else if (r < 0.012 + enemyChance) {
-      const enemyCount = entitiesRef.current.filter(e => e.type === 'enemy').length;
-      const maxEnemies = 3 + Math.floor(currentScore / 10);
-      if (enemyCount < maxEnemies) type = 'enemy';
-      else type = 'score';
-    } else if (r < 0.18) {
-      type = 'score';
-    } else {
-      return; // No spawn this frame
+    // 1. 特殊道具 (独立概率，合计约 6%)
+    if (r < 0.02) type = 'shield';
+    else if (r < 0.04) type = 'magnet';
+    else if (r < 0.06) type = 'nuke'; // 新道具：概率 2%
+    else {
+        // 2. 敌人 vs 分数 (动态平衡)
+        // 随着分数提高，生成敌人的概率增加，但封顶 50%，保证至少 50% 概率是分数
+        // 初始 10%，每 100 分增加 10%，最高 50%
+        const enemyRatio = Math.min(0.1 + (currentScore * 0.001), 0.5);
+        
+        // 限制同屏最大敌人数，防止过于变态
+        const currentEnemies = entitiesRef.current.filter(e => e.type === 'enemy').length;
+        // 基础允许 4 个敌人，每 50 分允许多 1 个，上限 15 个
+        const maxEnemies = Math.min(4 + Math.floor(currentScore / 50), 15);
+
+        if (Math.random() < enemyRatio && currentEnemies < maxEnemies) {
+            type = 'enemy';
+        } else {
+            type = 'score';
+        }
     }
 
     const entity: Entity = {
@@ -142,7 +165,7 @@ export const LeapOrbitGame: React.FC = () => {
       scale: 0,
       maxScale: 1,
       rotation: 0,
-      moveSpeed: type === 'enemy' ? randomRange(-0.015, 0.015) : 0,
+      moveSpeed: type === 'enemy' ? randomRange(-0.02, 0.02) : 0, // 敌人稍微变快一点点让动态感更强
       size: type === 'score' ? 10 : (type === 'enemy' ? 16 : 14),
       color: COLORS[type]
     };
@@ -165,6 +188,7 @@ export const LeapOrbitGame: React.FC = () => {
     };
     entitiesRef.current = [];
     particlesRef.current = [];
+    shockwavesRef.current = [];
     scoreRef.current = 0;
     setScoreDisplay(0);
     setBuffs({ shield: false, magnet: false });
@@ -205,7 +229,6 @@ export const LeapOrbitGame: React.FC = () => {
     player.angle += player.rotSpeed;
 
     if (isPressing.current) {
-      // Logic: The further out you are, the less force you have (spring effect)
       const forceFactor = 1 - (player.radius / (player.leapLimit + 100));
       player.rVelocity += player.accelOut * forceFactor;
     } else {
@@ -215,14 +238,11 @@ export const LeapOrbitGame: React.FC = () => {
     player.rVelocity *= player.drag;
     player.radius += player.rVelocity;
 
-    // Boundary constraints
     if (player.radius < player.baseRadius) {
       player.radius = player.baseRadius;
-      // Bounce back slightly if hitting the inner ring hard
       if (player.rVelocity < -1) {
-        player.rVelocity = -player.rVelocity * 0.4; // Bouncier inner ring
+        player.rVelocity = -player.rVelocity * 0.4;
         shake.current = Math.min(Math.abs(player.rVelocity) * 2, 5);
-        // Add impact particles
         createExplosion(player.x, player.y, 'rgba(255,255,255,0.3)', 3);
       } else {
         player.rVelocity = 0;
@@ -233,11 +253,9 @@ export const LeapOrbitGame: React.FC = () => {
       player.rVelocity -= 0.8;
     }
 
-    // Update coordinates
     player.x = cx + Math.cos(player.angle) * player.radius;
     player.y = cy + Math.sin(player.angle) * player.radius;
 
-    // Trail logic
     player.trail.push({ x: player.x, y: player.y });
     if (player.trail.length > PLAYER_CONFIG.trailLength) {
       player.trail.shift();
@@ -247,23 +265,16 @@ export const LeapOrbitGame: React.FC = () => {
     if (player.shieldTime > 0) player.shieldTime--;
     if (player.magnetTime > 0) player.magnetTime--;
 
-    // Sync Buff state with React for UI
+    // Sync Buff state (Check periodically or just let React batch it)
     const hasShield = player.shieldTime > 0;
     const hasMagnet = player.magnetTime > 0;
-    
-    // We throttle state updates or simply check if changed.
-    // Since this runs in RAF, we should be careful calling setBuffs too often.
-    // However, React 18 batches updates, so it's less of an issue, but let's check values.
-    // Accessing state inside ref-based loop is tricky, but we can trust setBuffs functional update.
-    // To minimize overhead, we can just do this every 10 frames or so, or relying on comparison.
-    // Simplest is to just check a local ref or simple comparison.
-    // We'll leave it as is, but maybe wrap in a check if performance dips.
     
     // 2. Entities Logic
     spawnEntity();
 
     for (let i = entitiesRef.current.length - 1; i >= 0; i--) {
       const e = entitiesRef.current[i];
+      if (!e.active) continue;
       
       // Spawn animation
       if (e.scale < e.maxScale) e.scale += 0.1;
@@ -281,17 +292,12 @@ export const LeapOrbitGame: React.FC = () => {
         const dy = player.y - (cy + Math.sin(e.angle) * e.dist);
         const distSq = dx * dx + dy * dy;
 
-        // Activation range for magnet
         if (distSq < 80000) {
-          e.dist += (player.radius - e.dist) * 0.18; // Move radially faster
-          
-          // Move angularly towards player
+          e.dist += (player.radius - e.dist) * 0.18;
           let diffAngle = player.angle - e.angle;
           while (diffAngle > Math.PI) diffAngle -= Math.PI * 2;
           while (diffAngle < -Math.PI) diffAngle += Math.PI * 2;
-          
           e.angle += diffAngle * 0.12;
-          
           if (distSq < 2500) magnetSucked = true;
         }
       }
@@ -318,21 +324,53 @@ export const LeapOrbitGame: React.FC = () => {
           player.magnetTime = 600;
           createExplosion(ex, ey, COLORS.magnet, 15);
           entitiesRef.current.splice(i, 1);
+        } else if (e.type === 'nuke') {
+          // --- NUKE LOGIC ---
+          createExplosion(ex, ey, COLORS.nuke, 20);
+          createShockwave(player.x, player.y, COLORS.nuke);
+          shake.current = 15;
+          
+          // Kill enemies nearby
+          const killRadiusSq = 300 * 300;
+          // Loop through entities again to find enemies
+          // Note: iterating backwards to splice safely
+          for (let j = entitiesRef.current.length - 1; j >= 0; j--) {
+              const target = entitiesRef.current[j];
+              // Skip if it's the nuke itself (handled by outer loop logic removal)
+              if (target.id === e.id) continue;
+
+              if (target.type === 'enemy') {
+                  const tx = cx + Math.cos(target.angle) * target.dist;
+                  const ty = cy + Math.sin(target.angle) * target.dist;
+                  const tdx = player.x - tx;
+                  const tdy = player.y - ty;
+                  
+                  if ((tdx*tdx + tdy*tdy) < killRadiusSq) {
+                      createExplosion(tx, ty, COLORS.enemy, 15);
+                      entitiesRef.current.splice(j, 1);
+                      scoreRef.current += 5;
+                      
+                      // Critical: If we removed an item with index < i, we must adjust i
+                      if (j < i) {
+                          i--;
+                      }
+                  }
+              }
+          }
+          // Remove the Nuke
+          entitiesRef.current.splice(i, 1);
+
         } else if (e.type === 'enemy') {
           if (player.shieldTime > 0) {
-            // Shield destroys enemy
             createExplosion(ex, ey, COLORS.enemy, 20);
             shake.current = 10;
             entitiesRef.current.splice(i, 1);
             scoreRef.current += 5;
           } else {
-            // Game Over
             createExplosion(player.x, player.y, COLORS.player, 30);
             setHighScore(prev => Math.max(prev, scoreRef.current));
-            
             gameStateRef.current = 'GAMEOVER';
-            setUiGameState('GAMEOVER'); // Trigger React Render for Game Over screen
-            
+            setUiGameState('GAMEOVER');
             shake.current = 20;
           }
         }
@@ -347,19 +385,22 @@ export const LeapOrbitGame: React.FC = () => {
       p.life -= 0.03;
       if (p.life <= 0) particlesRef.current.splice(i, 1);
     }
+    
+    // 4. Shockwaves Logic
+    for (let i = shockwavesRef.current.length - 1; i >= 0; i--) {
+        const sw = shockwavesRef.current[i];
+        sw.radius += 10;
+        sw.life -= 0.04;
+        if(sw.life <= 0) shockwavesRef.current.splice(i, 1);
+    }
 
-    // Shake decay
     if (shake.current > 0) shake.current *= 0.9;
     if (shake.current < 0.5) shake.current = 0;
 
-    // Sync Score to UI periodically or on change (doing it every frame is okay in React 18, but let's check)
-    // To prevent render spam, we can just call it. React handles it well.
     if (scoreRef.current !== scoreDisplay) {
         setScoreDisplay(scoreRef.current);
     }
     
-    // Sync Buffs
-    // Doing this comparison prevents re-renders if values haven't changed
     setBuffs(prev => {
         if (prev.shield !== hasShield || prev.magnet !== hasMagnet) {
             return { shield: hasShield, magnet: hasMagnet };
@@ -381,26 +422,21 @@ export const LeapOrbitGame: React.FC = () => {
 
     ctx.save();
     
-    // Apply Shake
     if (shake.current > 0) {
       const dx = (Math.random() - 0.5) * shake.current;
       const dy = (Math.random() - 0.5) * shake.current;
       ctx.translate(dx, dy);
     }
 
-    // Draw Stars (Parallax-ish background)
+    // Stars
     starsRef.current.forEach(star => {
         ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity})`;
         ctx.beginPath();
         ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
         ctx.fill();
-        
-        // Very slow movement?
-        // star.x += star.speed; 
-        // if(star.x > width) star.x = 0;
     });
 
-    // Draw Background Grid
+    // Grid
     ctx.strokeStyle = '#2a2a2a';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -409,7 +445,7 @@ export const LeapOrbitGame: React.FC = () => {
     }
     ctx.stroke();
 
-    // Central Hub
+    // Hub
     ctx.beginPath();
     ctx.arc(cx, cy, 30, 0, Math.PI * 2);
     ctx.fillStyle = '#333';
@@ -418,14 +454,13 @@ export const LeapOrbitGame: React.FC = () => {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Pulse effect on hub
     const pulse = Math.sin(Date.now() / 200) * 2;
     ctx.beginPath();
     ctx.arc(cx, cy, 30 + pulse, 0, Math.PI * 2);
     ctx.strokeStyle = `rgba(0, 210, 255, 0.3)`;
     ctx.stroke();
 
-    // Inner/Outer Limits Rings
+    // Rings
     ctx.beginPath();
     ctx.arc(cx, cy, PLAYER_CONFIG.baseRadius, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
@@ -444,6 +479,17 @@ export const LeapOrbitGame: React.FC = () => {
     }
 
     const player = playerRef.current;
+
+    // Draw Shockwaves
+    shockwavesRef.current.forEach(sw => {
+        ctx.beginPath();
+        ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = sw.color;
+        ctx.lineWidth = 4 * sw.life;
+        ctx.globalAlpha = sw.life;
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
+    });
 
     // Draw Entities
     entitiesRef.current.forEach(e => {
@@ -477,7 +523,7 @@ export const LeapOrbitGame: React.FC = () => {
             ctx.arc(0, 0, s, 0, Math.PI * 2);
             ctx.fill();
 
-            if (e.type === 'shield' || e.type === 'magnet') {
+            if (e.type === 'shield' || e.type === 'magnet' || e.type === 'nuke') {
                 ctx.fillStyle = '#fff';
                 ctx.beginPath();
                 ctx.arc(0, 0, s * 0.4, 0, Math.PI * 2);
@@ -497,9 +543,8 @@ export const LeapOrbitGame: React.FC = () => {
         ctx.globalAlpha = 1.0;
     });
 
-    // Draw Player if not Game Over (or explode it)
+    // Draw Player
     if (gameStateRef.current !== 'GAMEOVER') {
-        // Connector Line
         ctx.beginPath();
         ctx.moveTo(cx, cy);
         ctx.lineTo(player.x, player.y);
@@ -507,7 +552,6 @@ export const LeapOrbitGame: React.FC = () => {
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Trail
         if (player.trail.length > 1) {
             ctx.beginPath();
             ctx.moveTo(player.trail[0].x, player.trail[0].y);
@@ -523,7 +567,6 @@ export const LeapOrbitGame: React.FC = () => {
             ctx.globalAlpha = 1.0;
         }
 
-        // Player Body
         ctx.beginPath();
         ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
         ctx.fillStyle = player.color;
@@ -532,7 +575,7 @@ export const LeapOrbitGame: React.FC = () => {
         ctx.fill();
         ctx.shadowBlur = 0;
 
-        // Buff Visuals on Player
+        // Buff Visuals
         if (player.shieldTime > 0) {
             ctx.beginPath();
             ctx.arc(player.x, player.y, player.size + 8, 0, Math.PI * 2);
@@ -558,9 +601,8 @@ export const LeapOrbitGame: React.FC = () => {
     update();
     draw();
     frameId.current = requestAnimationFrame(loop);
-  }, []); // Dependencies removed because we use Refs for state. Stable loop.
+  }, []);
 
-  // --- Effects ---
   useEffect(() => {
     const handleResize = () => {
       if (containerRef.current && canvasRef.current) {
@@ -578,17 +620,13 @@ export const LeapOrbitGame: React.FC = () => {
     };
     window.addEventListener('resize', handleResize);
     handleResize();
-
-    // Start Loop
     frameId.current = requestAnimationFrame(loop);
-
     return () => {
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(frameId.current);
     };
   }, [loop]);
 
-  // Input Handlers
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => { e.preventDefault(); isPressing.current = true; };
     const handleTouchEnd = (e: TouchEvent) => { isPressing.current = false; };
@@ -662,6 +700,7 @@ export const LeapOrbitGame: React.FC = () => {
                     <div className="mt-8 flex justify-center gap-4 text-xs text-slate-500">
                         <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#00ff00]"></div> 护盾</div>
                         <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_5px_#bf00ff]"></div> 磁吸</div>
+                        <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-yellow-400 shadow-[0_0_5px_#facc15]"></div> 冲击波</div>
                     </div>
                 </div>
             </div>
