@@ -1,17 +1,17 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Player, Entity, Particle, Shockwave, EntityType } from '../types';
-import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame } from 'lucide-react';
+import { Player, Entity, Particle, Shockwave, EntityType, FloatingText } from '../types';
+import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash } from 'lucide-react';
 
-const GAME_VERSION = "v6.7-DashAndBalance";
+const GAME_VERSION = "v6.9.7-Visuals";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
   baseRadius: 100,
   accelOut: 0,    // 移除主动推力
-  gravity: 0.25,  // 引力
+  gravity: 0.125, // 引力减半 (0.25 -> 0.125)，解决弹起后过快坠落的问题
   drag: 0.94,     // 空气阻力
-  rotSpeed: 0.008, // 基础转向速度
-  dashRotSpeed: 0.025, // 冲刺时的转向速度
+  rotSpeed: 0.0045, 
+  dashRotSpeed: 0.018, 
   size: 14,
   trailLength: 25,
 };
@@ -50,15 +50,19 @@ export const LeapOrbitGame: React.FC = () => {
   const [scoreDisplay, setScoreDisplay] = useState(0);
   const [highScore, setHighScore] = useState(0);
   const [uiGameState, setUiGameState] = useState<'START' | 'PLAYING' | 'GAMEOVER'>('START');
-  const [buffs, setBuffs] = useState({ shield: false, magnet: false, dash: false });
+  // Changed buffs state to store remaining frames instead of boolean
+  const [buffs, setBuffs] = useState({ shield: 0, magnet: 0, dash: 0 });
   const [centerWarning, setCenterWarning] = useState(false);
   const [orbitCountDisplay, setOrbitCountDisplay] = useState(1);
+  const [gameStats, setGameStats] = useState({ duration: 0, finalOrbit: 1 });
 
   // --- Mutable Game State ---
   const gameStateRef = useRef<'START' | 'PLAYING' | 'GAMEOVER'>('START');
   const scoreRef = useRef(0);
   const orbitRef = useRef(1);      // 当前是第几圈 (从1开始)
-  const lastAngleRef = useRef(0);  
+  const lastAngleRef = useRef(0);
+  const gameStartTimeRef = useRef(0);
+  const isFillingInnerZoneRef = useRef(true); // 控制内圈是否处于填充状态
   
   const frameId = useRef<number>(0);
   const isPressing = useRef<boolean>(false);
@@ -86,6 +90,7 @@ export const LeapOrbitGame: React.FC = () => {
     trail: [],
     shieldTime: 0,
     magnetTime: 0,
+    magnetCount: 0,
     dashTime: 0, // 冲刺剩余时间
     centerTime: 0
   });
@@ -93,11 +98,19 @@ export const LeapOrbitGame: React.FC = () => {
   const entitiesRef = useRef<Entity[]>([]);
   const particlesRef = useRef<Particle[]>([]);
   const shockwavesRef = useRef<Shockwave[]>([]);
+  const floatingTextsRef = useRef<FloatingText[]>([]); // New Ref for floating text
   const starsRef = useRef<Star[]>([]);
   const entityIdCounter = useRef(0);
 
   // --- Helper Functions ---
   const randomRange = (min: number, max: number) => Math.random() * (max - min) + min;
+
+  const formatTime = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m}分${s}秒`;
+  };
 
   const initStars = (width: number, height: number) => {
     const starCount = 150;
@@ -138,59 +151,157 @@ export const LeapOrbitGame: React.FC = () => {
     });
   };
 
-  // --- 实体生成逻辑 ---
+  const spawnFloatingText = (x: number, y: number, text: string, color: string, size: number = 24) => {
+      floatingTextsRef.current.push({
+          x,
+          y,
+          text,
+          color,
+          life: 1.0,
+          vy: -1.5, // Float up
+          size
+      });
+  };
+
+  // 生成内圈光点 (安全圈)
+  // 规则：前3圈固定40个，之后每圈减少5个
+  const spawnSafetyRing = (orbitNum: number) => {
+      // 先移除旧的内圈光点 - Added check for e
+      entitiesRef.current = entitiesRef.current.filter(e => e && !e.isSafety);
+
+      let count = 40;
+      // 从第4圈开始衰减 (orbitNum > 3)
+      if (orbitNum > 3) {
+          const reduction = (orbitNum - 3) * 5;
+          count = Math.max(0, 40 - reduction);
+      }
+
+      const ringRadius = PLAYER_CONFIG.baseRadius + 80;
+      for(let i=0; i<count; i++) {
+          entitiesRef.current.push({
+              id: entityIdCounter.current++,
+              type: 'score',
+              angle: (Math.PI * 2 / count) * i,
+              dist: ringRadius, 
+              baseDist: ringRadius, 
+              active: true,
+              scale: 1,
+              maxScale: 1,
+              rotation: 0,
+              moveSpeed: 0.0015, // 内圈速度微调
+              size: 14,
+              color: COLORS.score,
+              isSafety: true, 
+              wobblePhase: Math.random() * Math.PI * 2
+          });
+      }
+  };
+
+  // 专属内圈生成器 (用于增加中心区域光点密度)
+  const spawnInnerAmbience = () => {
+    // 限制总实体数
+    if (entitiesRef.current.length > 350) return;
+
+    // 定义安全区半径 (与禁止生成红刺区域一致)
+    const SAFE_ZONE_RADIUS = PLAYER_CONFIG.baseRadius + 300;
+    
+    // 智能填充逻辑 (Hysteresis Loop)
+    // 1. 统计当前区域内有效光点数量 - Added check for e
+    const currentInnerCount = entitiesRef.current.filter(e => 
+        e && e.type === 'score' && e.dist <= SAFE_ZONE_RADIUS && e.active
+    ).length;
+
+    const UPPER_LIMIT = 50; // 达到50个停止生成
+    const LOWER_LIMIT = 20; // 降到20个重新开始生成
+
+    if (isFillingInnerZoneRef.current) {
+        if (currentInnerCount >= UPPER_LIMIT) {
+            isFillingInnerZoneRef.current = false;
+        }
+    } else {
+        if (currentInnerCount <= LOWER_LIMIT) {
+            isFillingInnerZoneRef.current = true;
+        }
+    }
+
+    // 如果未处于填充状态，直接返回
+    if (!isFillingInnerZoneRef.current) return;
+
+    // 加快生成速度：在填充状态下，使用较高概率 (15%)
+    if (Math.random() > 0.15) return;
+
+    // 安全区范围：Base + 50 ~ Base + 300
+    const dist = randomRange(PLAYER_CONFIG.baseRadius + 50, SAFE_ZONE_RADIUS);
+    
+    // 几乎全是光点，极低概率出辅助道具
+    let type: EntityType = 'score';
+    if (Math.random() < 0.02) {
+        const r = Math.random();
+        if (r < 0.33) type = 'shield';
+        else if (r < 0.66) type = 'magnet';
+        else type = 'dash';
+    }
+
+    const entity: Entity = {
+        id: entityIdCounter.current++,
+        type,
+        angle: randomRange(0, Math.PI * 2),
+        dist,
+        active: true,
+        scale: 0,
+        maxScale: 1,
+        rotation: 0,
+        moveSpeed: randomRange(0.001, 0.002) * (Math.random() > 0.5 ? 1 : -1),
+        size: type === 'score' ? 12 : 16,
+        color: COLORS[type],
+        isSafety: false
+    };
+
+    entitiesRef.current.push(entity);
+  };
+
+  // --- 实体生成逻辑 (主生成器) ---
   const spawnEntity = () => {
-    const maxEntities = 350; // 稍微增加上限以适应后期高密度
+    const maxEntities = 350; 
     if (entitiesRef.current.length > maxEntities) return;
 
     const currentOrbit = orbitRef.current;
     
-    // 生成频率：随圈数轻微提升
-    const baseSpawnRate = 0.8;
-    // 每一圈增加 0.02 概率，上限 0.95
-    const spawnRate = Math.min(0.95, baseSpawnRate + (currentOrbit * 0.02)); 
+    // 生成频率：较低
+    const spawnChance = Math.min(0.08, 0.03 + (currentOrbit * 0.002)); 
     
-    if (Math.random() > spawnRate) return;
+    if (Math.random() > spawnChance) return;
 
     const playerRadius = playerRef.current.radius;
     let type: EntityType = 'score';
 
     // 随机数用于决定是 敌人 还是 道具
-    // 道具包含：score(基本光点算作道具池填充), shield, magnet, nuke, dash
     
     // --- 概率分配逻辑 ---
     if (currentOrbit >= 3) {
         // === 第三圈及以后 ===
-        // 严格 3:7 比例 (红刺 : 道具)
+        // 30% 敌人
         if (Math.random() < 0.3) {
             type = 'enemy';
         } else {
             // 70% 道具池 (含光点)
-            // 道具内部分配 (不含普通光点Score的Buff分配逻辑):
-            // 需求：1成紫色(Magnet), 2成橙色(Dash), 3成绿色(Shield), 4成黄色(Nuke)
-            // 这里我们先决定是出Buff还是出普通Score。为了游戏性，不能全是Buff。
-            // 假设 Buff 出现率为 20% (在道具池中)，剩下是普通光点。
             if (Math.random() < 0.25) { // 25% 概率出特殊道具
                 const rProp = Math.random();
                 if (rProp < 0.1) type = 'magnet';      // 10% 紫
-                else if (rProp < 0.3) type = 'dash';   // 20% 橙 (0.1 + 0.2)
-                else if (rProp < 0.6) type = 'shield'; // 30% 绿 (0.3 + 0.3)
-                else type = 'nuke';                    // 40% 黄 (剩余)
+                else if (rProp < 0.3) type = 'dash';   // 20% 橙
+                else if (rProp < 0.6) type = 'shield'; // 30% 绿
+                else type = 'nuke';                    // 40% 黄
             } else {
                 type = 'score';
             }
         }
     } else {
         // === 第三圈之前 (新手/发育期) ===
-        // 主要是光点，少量稀有道具，极少敌人
-        // 敌人概率随分数微增，上限 10%
         const enemyChance = Math.min(0.01 + (scoreRef.current * 0.0002), 0.1);
         
         if (Math.random() < enemyChance) {
             type = 'enemy';
         } else {
-            // 道具内部分配：
-            // 需求：1成黄色(Nuke), 2成橙色(Dash), 2成紫色(Magnet), 5成绿色(Shield)
             if (Math.random() < 0.15) { // 15% 概率出特殊道具
                 const rProp = Math.random();
                 if (rProp < 0.1) type = 'nuke';        // 10% 黄
@@ -210,10 +321,23 @@ export const LeapOrbitGame: React.FC = () => {
     if (baseSpawn > MAX_ALTITUDE) return;
 
     const spawnDist = randomRange(baseSpawn, ceilingSpawn);
+
+    // 1. 防止磁铁生成在中心附近 (避免吸走保命圈)
+    if (type === 'magnet' && spawnDist < PLAYER_CONFIG.baseRadius + 450) {
+        type = 'score';
+    }
+
+    // 2. 禁止红刺在中心安全区生成 (New Fix)
+    // 设定安全区半径为 Base + 300 (约 400 距离)
+    const ENEMY_SAFE_DIST = PLAYER_CONFIG.baseRadius + 300;
+    if (type === 'enemy' && spawnDist < ENEMY_SAFE_DIST) {
+        type = 'score';
+    }
+
     const spawnAngle = randomRange(0, Math.PI * 2);
 
-    // 速度归一化
-    const moveSpeed = randomRange(0.002, 0.006) * (Math.random() > 0.5 ? 1 : -1);
+    // 实体移动速度全局降速
+    const moveSpeed = randomRange(0.001, 0.0025) * (Math.random() > 0.5 ? 1 : -1);
 
     const entity: Entity = {
       id: entityIdCounter.current++,
@@ -241,7 +365,8 @@ export const LeapOrbitGame: React.FC = () => {
       rVelocity: 0,
       shieldTime: 0,
       magnetTime: 0,
-      dashTime: 0, // Reset Dash
+      magnetCount: 0, // Reset magnet count
+      dashTime: 0, 
       centerTime: 0, 
       trail: [],
       x: 0,
@@ -250,64 +375,54 @@ export const LeapOrbitGame: React.FC = () => {
     entitiesRef.current = [];
     particlesRef.current = [];
     shockwavesRef.current = [];
+    floatingTextsRef.current = [];
     scoreRef.current = 0;
     
     orbitRef.current = 1; 
     lastAngleRef.current = 0;
+    gameStartTimeRef.current = Date.now();
+    isFillingInnerZoneRef.current = true; // Reset fill state
     
     cameraRef.current = { x: 0, y: 0, zoom: 1 };
 
     setScoreDisplay(0);
     setOrbitCountDisplay(1);
-    setBuffs({ shield: false, magnet: false, dash: false });
+    setBuffs({ shield: 0, magnet: 0, dash: 0 });
     setCenterWarning(false);
     isPressing.current = false;
     
-    // 1. 初始光点圈 (Safety Ring)
-    const ringCount = 40;
-    const ringRadius = PLAYER_CONFIG.baseRadius + 80;
-    for(let i=0; i<ringCount; i++) {
-        entitiesRef.current.push({
-            id: entityIdCounter.current++,
-            type: 'score',
-            angle: (Math.PI * 2 / ringCount) * i,
-            dist: ringRadius, 
-            baseDist: ringRadius, 
-            active: true,
-            scale: 1,
-            maxScale: 1,
-            rotation: 0,
-            moveSpeed: 0.003, 
-            size: 14,
-            color: COLORS.score,
-            isSafety: true, 
-            wobblePhase: Math.random() * Math.PI * 2
-        });
-    }
-
-    // 2. 在外围生成大量随机光点
-    for(let i=0; i<50; i++) {
-        entitiesRef.current.push({
-            id: entityIdCounter.current++,
-            type: 'score',
-            angle: randomRange(0, Math.PI * 2),
-            dist: randomRange(PLAYER_CONFIG.baseRadius + 150, PLAYER_CONFIG.baseRadius + 1000),
-            active: true,
-            scale: 1,
-            maxScale: 1,
-            rotation: 0,
-            moveSpeed: randomRange(0.002, 0.005) * (Math.random() > 0.5 ? 1 : -1),
-            size: 14,
-            color: COLORS.score,
-            isSafety: false
-        });
-    }
+    // 生成初始光点圈 (Safety Ring)
+    spawnSafetyRing(1);
   };
 
   const startGame = () => {
     initGame();
     gameStateRef.current = 'PLAYING';
     setUiGameState('PLAYING');
+  };
+
+  const handleGameOver = () => {
+    gameStateRef.current = 'GAMEOVER';
+    const duration = Date.now() - gameStartTimeRef.current;
+    
+    // Explode all active entities on game over
+    entitiesRef.current.forEach(e => {
+        if (e && e.active) {
+            const ex = Math.cos(e.angle) * e.dist;
+            const ey = Math.sin(e.angle) * e.dist;
+            createShockwave(ex, ey, e.color);
+            createExplosion(ex, ey, e.color, 5, 8); // Minor explosion for visual flair
+        }
+    });
+    // Clear entities after explosion
+    entitiesRef.current = [];
+
+    setGameStats({
+        duration: duration,
+        finalOrbit: orbitRef.current
+    });
+    setHighScore(prev => Math.max(prev, scoreRef.current));
+    setUiGameState('GAMEOVER');
   };
 
   // --- Main Update Loop ---
@@ -328,20 +443,13 @@ export const LeapOrbitGame: React.FC = () => {
     // --- 操作逻辑与物理 ---
     if (hasDash) {
         // === 冲刺状态逻辑 ===
-        // 1. 强制高速旋转
         player.angle += PLAYER_CONFIG.dashRotSpeed;
-        
-        // 2. 锁定轨道高度 (模拟在当前轨道上飞驰)
-        // 减少重力影响，快速衰减径向速度
         player.rVelocity *= 0.5; 
-        // 施加极小的反重力保持悬浮，或者直接忽略重力
-        // 这里选择忽略重力，让之前的动量慢慢消失
     } else {
         // === 正常状态逻辑 ===
         if (isPressing.current) {
             player.angle += player.rotSpeed; 
         }
-        // 重力应用
         player.rVelocity -= player.gravity; 
     }
 
@@ -360,15 +468,7 @@ export const LeapOrbitGame: React.FC = () => {
         shake.current = 5;
         createShockwave(0, 0, '#00d2ff');
 
-        entitiesRef.current.forEach(e => {
-            if (e.isSafety && !e.active) {
-                e.active = true;
-                e.scale = 0; 
-                const px = Math.cos(e.angle) * e.dist;
-                const py = Math.sin(e.angle) * e.dist;
-                createExplosion(px, py, COLORS.score, 5, 2);
-            }
-        });
+        spawnSafetyRing(currentOrbitNum);
     }
 
     // 下界限制与反弹
@@ -393,9 +493,7 @@ export const LeapOrbitGame: React.FC = () => {
                 createExplosion(player.x, player.y, COLORS.enemy, 30, 20); 
                 createShockwave(0, 0, COLORS.enemy);
                 shake.current = 40;
-                setHighScore(prev => Math.max(prev, scoreRef.current));
-                gameStateRef.current = 'GAMEOVER';
-                setUiGameState('GAMEOVER');
+                handleGameOver();
             }
         }
     } else {
@@ -414,11 +512,10 @@ export const LeapOrbitGame: React.FC = () => {
     }
 
     // --- 相机逻辑 ---
-    // 冲刺时相机稍微拉远一点
     const { width, height } = dimensions.current;
     const targetCamX = player.x * 0.5;
     const targetCamY = player.y * 0.5;
-    const margin = hasDash ? 350 : 200; // 冲刺时视野变大
+    const margin = hasDash ? 350 : 200; 
     const requiredCoverage = (player.radius * 2) + margin; 
     const minScreenDim = Math.min(width, height);
     let targetZoom = minScreenDim / requiredCoverage;
@@ -429,15 +526,17 @@ export const LeapOrbitGame: React.FC = () => {
     cameraRef.current.y += (targetCamY - cameraRef.current.y) * camLerp;
     cameraRef.current.zoom += (targetZoom - cameraRef.current.zoom) * zoomLerp;
 
-    // 实体逻辑
+    // 实体逻辑 (主 + 辅助)
     spawnEntity();
+    spawnInnerAmbience();
 
     const now = Date.now();
     const currentOrbit = orbitRef.current;
 
     for (let i = entitiesRef.current.length - 1; i >= 0; i--) {
       const e = entitiesRef.current[i];
-      
+      if (!e) continue; // Check for undefined entity
+
       // Safety Ring Logic
       if (e.isSafety && e.active) {
           if (currentOrbit >= 2) {
@@ -456,7 +555,7 @@ export const LeapOrbitGame: React.FC = () => {
       e.angle += e.moveSpeed;
       if (e.type === 'enemy') e.rotation += 0.05;
 
-      // 磁铁
+      // 磁铁逻辑
       let magnetSucked = false;
       if (e.type === 'score' && hasMagnet) {
         const ex = Math.cos(e.angle) * e.dist;
@@ -476,26 +575,40 @@ export const LeapOrbitGame: React.FC = () => {
         }
       }
 
-      // 碰撞
+      // 碰撞检测
       const ex = Math.cos(e.angle) * e.dist;
       const ey = Math.sin(e.angle) * e.dist;
       const dx = player.x - ex;
       const dy = player.y - ey;
       const distSq = dx*dx + dy*dy;
       const radiusSum = player.size + e.size * e.scale;
+      const isDirectHit = distSq < radiusSum * radiusSum;
 
-      if (distSq < radiusSum * radiusSum || magnetSucked) {
+      if (isDirectHit || magnetSucked) {
         if (e.type === 'score') {
           scoreRef.current += 1;
           createExplosion(ex, ey, 'white', 8, 8);
+          spawnFloatingText(ex, ey, "+1", "#ffffff"); // Floating Text for score
           
-          if (player.radius > MAX_ALTITUDE) {
-              player.rVelocity = Math.max(player.rVelocity, 2); 
-          } else {
-              const baseBoost = 15.0; 
-              const distanceBoost = player.radius / 300; 
-              const totalBoost = baseBoost + distanceBoost;
-              player.rVelocity = Math.max(player.rVelocity + totalBoost, totalBoost);
+          // 4. 磁铁吸取计数逻辑
+          if (hasMagnet) {
+              player.magnetCount = (player.magnetCount || 0) + 1;
+              // 如果吸取达到15个，立刻移除磁铁状态
+              if (player.magnetCount >= 15) {
+                  player.magnetTime = 0;
+                  setBuffs(prev => ({ ...prev, magnet: 0 })); // Update UI immediately
+              }
+          }
+
+          if (isDirectHit) {
+              if (player.radius > MAX_ALTITUDE) {
+                  player.rVelocity = Math.max(player.rVelocity, 2); 
+              } else {
+                  const baseBoost = 15.0; 
+                  const distanceBoost = player.radius / 300; 
+                  const totalBoost = baseBoost + distanceBoost;
+                  player.rVelocity = Math.max(player.rVelocity + totalBoost, totalBoost);
+              }
           }
           
           if (e.isSafety) {
@@ -510,11 +623,11 @@ export const LeapOrbitGame: React.FC = () => {
           entitiesRef.current.splice(i, 1);
         } else if (e.type === 'magnet') {
           player.magnetTime = 600;
+          player.magnetCount = 0; // 重置吸取计数
           createExplosion(ex, ey, COLORS.magnet, 15);
           entitiesRef.current.splice(i, 1);
         } else if (e.type === 'dash') {
-          // 激活冲刺
-          player.dashTime = 150; // 2.5秒
+          player.dashTime = 150; 
           createExplosion(ex, ey, COLORS.dash, 20);
           createShockwave(ex, ey, COLORS.dash);
           entitiesRef.current.splice(i, 1);
@@ -526,6 +639,7 @@ export const LeapOrbitGame: React.FC = () => {
           const killRadiusSq = 500 * 500;
           for (let j = entitiesRef.current.length - 1; j >= 0; j--) {
               const target = entitiesRef.current[j];
+              if (!target) continue; // Safety check inside nested loop
               if (target.id === e.id) continue;
               if (target.type === 'enemy') {
                   const tx = Math.cos(target.angle) * target.dist;
@@ -534,8 +648,10 @@ export const LeapOrbitGame: React.FC = () => {
                   const tdy = ey - ty;
                   if ((tdx*tdx + tdy*tdy) < killRadiusSq) {
                       createExplosion(tx, ty, COLORS.enemy, 15);
+                      createShockwave(tx, ty, COLORS.enemy); // Shockwave for nuke kill
+                      spawnFloatingText(tx, ty, "+3", COLORS.enemy, 32); // Text for nuke kill
                       entitiesRef.current.splice(j, 1);
-                      scoreRef.current += 5;
+                      scoreRef.current += 3; // Nuke 摧毁红刺 +3分
                       if (j < i) i--;
                   }
               }
@@ -543,19 +659,22 @@ export const LeapOrbitGame: React.FC = () => {
           entitiesRef.current.splice(i, 1);
 
         } else if (e.type === 'enemy') {
-          if (hasShield || hasDash) {
-            // 护盾或冲刺撞毁敌人
-            createExplosion(ex, ey, COLORS.enemy, 20);
-            createShockwave(ex, ey, hasDash ? COLORS.dash : COLORS.shield);
-            shake.current = 10;
-            entitiesRef.current.splice(i, 1);
-            scoreRef.current += 10; // 冲刺撞毁敌人得分更高
-          } else {
-            createExplosion(player.x, player.y, COLORS.player, 30);
-            setHighScore(prev => Math.max(prev, scoreRef.current));
-            gameStateRef.current = 'GAMEOVER';
-            setUiGameState('GAMEOVER');
-            shake.current = 25;
+          if (isDirectHit) {
+              if (hasShield || hasDash) {
+                createExplosion(ex, ey, COLORS.enemy, 20);
+                createShockwave(ex, ey, hasDash ? COLORS.dash : COLORS.shield);
+                // Also add red shockwave for enemy death
+                createShockwave(ex, ey, COLORS.enemy); 
+                spawnFloatingText(ex, ey, "+3", COLORS.enemy, 32); // Text for dash/shield kill
+
+                shake.current = 10;
+                entitiesRef.current.splice(i, 1);
+                scoreRef.current += 3; // 冲刺/护盾撞毁红刺 +3分
+              } else {
+                createExplosion(player.x, player.y, COLORS.player, 30);
+                shake.current = 25;
+                handleGameOver();
+              }
           }
         }
       }
@@ -578,14 +697,23 @@ export const LeapOrbitGame: React.FC = () => {
         if(sw.life <= 0) shockwavesRef.current.splice(i, 1);
     }
 
+    // 浮动文字
+    for (let i = floatingTextsRef.current.length - 1; i >= 0; i--) {
+        const ft = floatingTextsRef.current[i];
+        ft.y += ft.vy;
+        ft.life -= 0.02;
+        if (ft.life <= 0) floatingTextsRef.current.splice(i, 1);
+    }
+
     if (shake.current > 0) shake.current *= 0.9;
     
     if (scoreRef.current !== scoreDisplay) setScoreDisplay(scoreRef.current);
-    setBuffs(prev => {
-        if (prev.shield !== hasShield || prev.magnet !== hasMagnet || prev.dash !== hasDash) {
-            return { shield: hasShield, magnet: hasMagnet, dash: hasDash };
-        }
-        return prev;
+    
+    // Update buffs state with remaining time
+    setBuffs({ 
+        shield: player.shieldTime, 
+        magnet: player.magnetTime, 
+        dash: player.dashTime 
     });
   };
 
@@ -707,7 +835,7 @@ export const LeapOrbitGame: React.FC = () => {
 
     // 实体
     entitiesRef.current.forEach(e => {
-        if (!e.active) return; 
+        if (!e || !e.active) return; // Checked e
 
         const x = Math.cos(e.angle) * e.dist;
         const y = Math.sin(e.angle) * e.dist;
@@ -731,23 +859,8 @@ export const LeapOrbitGame: React.FC = () => {
             }
             ctx.closePath();
             ctx.fill();
-        } else if (e.type === 'dash') {
-            // 绘制火焰形状 (冲刺道具)
-            ctx.fillStyle = e.color;
-            ctx.shadowColor = e.color;
-            ctx.shadowBlur = 15;
-            ctx.beginPath();
-            // 简单火焰形状
-            ctx.moveTo(0, -s);
-            ctx.quadraticCurveTo(s, 0, 0, s);
-            ctx.quadraticCurveTo(-s, 0, 0, -s);
-            ctx.fill();
-            // 内部核心
-            ctx.fillStyle = '#fff';
-            ctx.beginPath();
-            ctx.arc(0, 0, s * 0.4, 0, Math.PI * 2);
-            ctx.fill();
         } else {
+            // Unified prop drawing style (including Dash)
             ctx.fillStyle = e.color;
             ctx.shadowColor = e.color;
             ctx.shadowBlur = e.type === 'score' ? 5 : 15;
@@ -773,6 +886,22 @@ export const LeapOrbitGame: React.FC = () => {
         ctx.fill();
         ctx.globalAlpha = 1.0;
     });
+
+    // 浮动文字绘制
+    ctx.save();
+    floatingTextsRef.current.forEach(ft => {
+        ctx.globalAlpha = Math.max(0, ft.life);
+        ctx.fillStyle = ft.color;
+        ctx.font = `bold ${ft.size}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // Draw text stroke for readability
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 3;
+        ctx.strokeText(ft.text, ft.x, ft.y);
+        ctx.fillText(ft.text, ft.x, ft.y);
+    });
+    ctx.restore();
 
     // 玩家
     if (gameStateRef.current !== 'GAMEOVER') {
@@ -823,6 +952,7 @@ export const LeapOrbitGame: React.FC = () => {
             ctx.stroke();
         }
         if (player.magnetTime > 0) {
+            // 显示吸取计数进度 (可选)
             ctx.beginPath();
             ctx.arc(px, py, player.size + 16, 0, Math.PI * 2);
             ctx.strokeStyle = `rgba(191, 0, 255, 0.2)`;
@@ -898,23 +1028,37 @@ export const LeapOrbitGame: React.FC = () => {
     <div ref={containerRef} className="relative w-full h-full font-sans select-none">
         {/* Buff HUD */}
         <div className="absolute top-4 left-4 flex flex-col gap-3 pointer-events-none z-20">
-            <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.shield ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
+            <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.shield > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
                 <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500 shadow-[0_0_10px_#00ff00]">
                     <Shield size={16} className="text-green-400" />
                 </div>
-                <span className="text-green-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">护盾已激活</span>
+                <span className="text-green-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">
+                    护盾 {Math.ceil(buffs.shield / 60)}s
+                </span>
             </div>
-            <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.magnet ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
+            <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.magnet > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
                 <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500 shadow-[0_0_10px_#bf00ff]">
                     <Zap size={16} className="text-purple-400" />
                 </div>
-                <span className="text-purple-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">磁吸已激活</span>
+                <div className="flex flex-col">
+                    <span className="text-purple-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">
+                        磁吸 {Math.ceil(buffs.magnet / 60)}s
+                    </span>
+                    {/* 显示剩余吸取次数 */}
+                    {playerRef.current.magnetTime > 0 && (
+                         <span className="text-purple-300 text-[10px] leading-none opacity-80">
+                            剩余吸取: {Math.max(0, 15 - playerRef.current.magnetCount)}
+                        </span>
+                    )}
+                </div>
             </div>
-             <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.dash ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
+             <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.dash > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
                 <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center border border-orange-500 shadow-[0_0_10px_#f97316]">
                     <Flame size={16} className="text-orange-400" />
                 </div>
-                <span className="text-orange-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">充能冲刺</span>
+                <span className="text-orange-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">
+                    冲刺 {Math.ceil(buffs.dash / 60)}s
+                </span>
             </div>
         </div>
 
@@ -970,7 +1114,7 @@ export const LeapOrbitGame: React.FC = () => {
                         className="group relative px-8 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-full transition-all hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(8,145,178,0.5)] flex items-center gap-2 mx-auto"
                     >
                         <Play size={20} className="fill-current" />
-                        开始任务
+                        开始游戏
                     </button>
                 </div>
             </div>
@@ -983,18 +1127,29 @@ export const LeapOrbitGame: React.FC = () => {
                     <div className="inline-block p-3 rounded-full bg-red-500/20 mb-4 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]">
                         <Skull size={32} className="text-red-500" />
                     </div>
-                    <h2 className="text-3xl font-black text-white mb-2">任务失败</h2>
+                    <h2 className="text-3xl font-black text-white mb-2">游戏结束</h2>
                     
                     <div className="grid grid-cols-2 gap-4 my-6">
-                        <div className="bg-white/5 p-3 rounded-lg border border-white/10">
+                        <div className="bg-white/5 p-3 rounded-lg border border-white/10 col-span-2">
                             <div className="text-xs text-slate-400 uppercase mb-1">本次得分</div>
-                            <div className="text-2xl font-mono font-bold text-white">{scoreDisplay}</div>
+                            <div className="text-4xl font-mono font-bold text-white">{scoreDisplay}</div>
                         </div>
-                        <div className="bg-white/5 p-3 rounded-lg border border-white/10">
-                            <div className="text-xs text-slate-400 uppercase mb-1 flex items-center justify-center gap-1">
-                                <Trophy size={10} className="text-yellow-500" /> 历史最高
+                        <div className="bg-white/5 p-3 rounded-lg border border-white/10 flex flex-col items-center">
+                            <div className="text-xs text-slate-400 uppercase mb-1 flex items-center gap-1">
+                                <Clock size={12} className="text-slate-400" /> 存活时间
                             </div>
-                            <div className="text-2xl font-mono font-bold text-yellow-500">{highScore}</div>
+                            <div className="text-lg font-mono font-bold text-slate-200">{formatTime(gameStats.duration)}</div>
+                        </div>
+                        <div className="bg-white/5 p-3 rounded-lg border border-white/10 flex flex-col items-center">
+                            <div className="text-xs text-slate-400 uppercase mb-1 flex items-center gap-1">
+                                <Hash size={12} className="text-slate-400" /> 完成圈数
+                            </div>
+                            <div className="text-lg font-mono font-bold text-slate-200">{gameStats.finalOrbit}</div>
+                        </div>
+                         <div className="bg-white/5 p-3 rounded-lg border border-white/10 col-span-2 flex items-center justify-center gap-2">
+                            <Trophy size={14} className="text-yellow-500" /> 
+                            <span className="text-xs text-slate-400 uppercase">历史最高</span>
+                            <span className="font-mono font-bold text-yellow-500">{highScore}</span>
                         </div>
                     </div>
 

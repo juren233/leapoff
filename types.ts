@@ -22,6 +22,7 @@ export interface Player {
   trail: Point[];
   shieldTime: number;
   magnetTime: number;
+  magnetCount: number; // Track number of orbs absorbed by current magnet
   dashTime: number; // Duration for the dash power-up
   centerTime: number; // Time spent at the center hub
 }
@@ -62,6 +63,16 @@ export interface Shockwave {
   maxRadius: number;
   life: number; // 1.0 to 0.0
   color: string;
+}
+
+export interface FloatingText {
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  life: number;
+  vy: number;
+  size: number;
 }
 
 export interface GameState {
