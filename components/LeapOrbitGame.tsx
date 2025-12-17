@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType } from '../types';
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle } from 'lucide-react';
 
-const GAME_VERSION = "v6.0-OrbJumper";
+const GAME_VERSION = "v6.1-RingRestored";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -192,7 +192,6 @@ export const LeapOrbitGame: React.FC = () => {
   };
 
   const initGame = () => {
-    
     playerRef.current = {
       ...playerRef.current,
       angle: 0,
@@ -217,13 +216,31 @@ export const LeapOrbitGame: React.FC = () => {
     setCenterWarning(false);
     isPressing.current = false;
     
-    // 逻辑变更：开局生成大量光点，方便起步
+    // 1. 恢复初始光点圈 (Radius 180)，给玩家保底
+    // 它们现在也会沿轨道缓慢移动
+    for(let i=0; i<16; i++) {
+        entitiesRef.current.push({
+            id: entityIdCounter.current++,
+            type: 'score',
+            angle: (Math.PI * 2 / 16) * i,
+            dist: PLAYER_CONFIG.baseRadius + 80, // R = 180
+            active: true,
+            scale: 1,
+            maxScale: 1,
+            rotation: 0,
+            moveSpeed: 0.003, // 缓慢公转
+            size: 14,
+            color: COLORS.score
+        });
+    }
+
+    // 2. 在外围生成大量随机光点，方便探索
     for(let i=0; i<40; i++) {
         entitiesRef.current.push({
             id: entityIdCounter.current++,
             type: 'score',
             angle: randomRange(0, Math.PI * 2),
-            dist: randomRange(PLAYER_CONFIG.baseRadius + 50, PLAYER_CONFIG.baseRadius + 400),
+            dist: randomRange(PLAYER_CONFIG.baseRadius + 150, PLAYER_CONFIG.baseRadius + 600),
             active: true,
             scale: 1,
             maxScale: 1,
