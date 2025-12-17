@@ -2,15 +2,15 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType } from '../types';
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle } from 'lucide-react';
 
-const GAME_VERSION = "v5.5-ControlFix";
+const GAME_VERSION = "v6.0-OrbJumper";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
   baseRadius: 100,
-  accelOut: 0.25, // 2. 大幅减小主动加速力度 (0.45 -> 0.25)，速度增加会很平缓
-  gravity: 0.12,  // 2. 配套减小引力，防止飞不起来
-  drag: 0.96,     // 2. 阻力加大 (0.95 -> 0.96)，增加"粘稠感"和阻尼，限制最高速
-  rotSpeed: 0.005, // 1. 转速再次大幅调慢 (0.014 -> 0.005)，解决晕头转向问题
+  accelOut: 0,    // 2. 移除主动推力，按住不再加速
+  gravity: 0.25,  // 2. 保持较强引力，需要靠吃球对抗
+  drag: 0.94,     // 2. 空气阻力
+  rotSpeed: 0.008, // 1. 转速适中，方便微调角度
   size: 14,
   trailLength: 25,
 };
@@ -133,13 +133,13 @@ export const LeapOrbitGame: React.FC = () => {
   const spawnEntity = () => {
     const playerRadius = playerRef.current.radius;
     
-    // 动态调整实体上限
-    const maxEntities = 30 + Math.floor(Math.max(0, playerRadius - 100) / 40);
+    // 逻辑变更：大量增加实体上限，满屏光点
+    const maxEntities = 80 + Math.floor(Math.max(0, playerRadius - 100) / 30);
     
     if (entitiesRef.current.length > maxEntities) return;
 
-    // 生成概率随距离增加
-    const spawnRate = 0.15 + Math.min(0.45, (playerRadius - 100) / 2000);
+    // 逻辑变更：生成频率极高
+    const spawnRate = 0.8; 
 
     if (Math.random() > spawnRate) return;
 
@@ -147,13 +147,14 @@ export const LeapOrbitGame: React.FC = () => {
     const r = Math.random();
     let type: EntityType = 'score';
 
-    if (r < 0.02) type = 'shield';
-    else if (r < 0.04) type = 'magnet';
-    else if (r < 0.06) type = 'nuke';
+    if (r < 0.01) type = 'shield';
+    else if (r < 0.02) type = 'magnet';
+    else if (r < 0.03) type = 'nuke';
     else {
-        const enemyRatio = Math.min(0.1 + (currentScore * 0.001), 0.4);
+        // 敌人生成率稍微降低，因为光点多了
+        const enemyRatio = Math.min(0.05 + (currentScore * 0.0005), 0.25);
         const currentEnemies = entitiesRef.current.filter(e => e.type === 'enemy').length;
-        const maxEnemies = Math.min(5 + Math.floor(currentScore / 40) + Math.floor(playerRadius / 500), 25);
+        const maxEnemies = Math.min(5 + Math.floor(currentScore / 50), 20);
 
         if (Math.random() < enemyRatio && currentEnemies < maxEnemies) {
             type = 'enemy';
@@ -163,9 +164,15 @@ export const LeapOrbitGame: React.FC = () => {
     }
 
     // 生成范围
-    const spawnRadiusOffset = randomRange(80, 350);
+    const spawnRadiusOffset = randomRange(50, 400); // 范围变大
     const spawnDist = Math.max(PLAYER_CONFIG.baseRadius + 50, playerRadius + spawnRadiusOffset);
     const spawnAngle = randomRange(0, Math.PI * 2);
+
+    // 逻辑变更：所有物体都有轨道移动速度
+    // 光点速度慢，敌人稍微快一点
+    const moveSpeed = type === 'score' 
+        ? randomRange(0.001, 0.005) * (Math.random() > 0.5 ? 1 : -1)
+        : randomRange(-0.02, 0.02);
 
     const entity: Entity = {
       id: entityIdCounter.current++,
@@ -176,7 +183,7 @@ export const LeapOrbitGame: React.FC = () => {
       scale: 0,
       maxScale: 1,
       rotation: 0,
-      moveSpeed: type === 'enemy' ? randomRange(-0.02, 0.02) : 0,
+      moveSpeed: moveSpeed,
       size: type === 'score' ? 12 : (type === 'enemy' ? 18 : 16),
       color: COLORS[type]
     };
@@ -185,17 +192,15 @@ export const LeapOrbitGame: React.FC = () => {
   };
 
   const initGame = () => {
-    // 4. 为了避免开局死：
-    // 生成一圈光点在中心外围 (R=180)，玩家生成在这圈光点外面 (R=240)
     
     playerRef.current = {
       ...playerRef.current,
       angle: 0,
-      radius: PLAYER_CONFIG.baseRadius + 140, // 初始位置在光点圈外
+      radius: PLAYER_CONFIG.baseRadius + 140, 
       rVelocity: 0,
       shieldTime: 0,
       magnetTime: 0,
-      centerTime: 0, // 重置中心计时器
+      centerTime: 0, 
       trail: [],
       x: 0,
       y: 0
@@ -212,18 +217,18 @@ export const LeapOrbitGame: React.FC = () => {
     setCenterWarning(false);
     isPressing.current = false;
     
-    // 初始光点圈 (Radius 180)
-    for(let i=0; i<16; i++) {
+    // 逻辑变更：开局生成大量光点，方便起步
+    for(let i=0; i<40; i++) {
         entitiesRef.current.push({
             id: entityIdCounter.current++,
             type: 'score',
-            angle: (Math.PI * 2 / 16) * i,
-            dist: PLAYER_CONFIG.baseRadius + 80, // R = 180
+            angle: randomRange(0, Math.PI * 2),
+            dist: randomRange(PLAYER_CONFIG.baseRadius + 50, PLAYER_CONFIG.baseRadius + 400),
             active: true,
             scale: 1,
             maxScale: 1,
             rotation: 0,
-            moveSpeed: 0,
+            moveSpeed: randomRange(0.002, 0.005) * (Math.random() > 0.5 ? 1 : -1),
             size: 14,
             color: COLORS.score
         });
@@ -242,42 +247,39 @@ export const LeapOrbitGame: React.FC = () => {
 
     const player = playerRef.current;
     
-    // 1. 只有按住时才转动
+    // --- 操作逻辑变更 ---
+    // 按住屏幕只负责转动，不负责加速 (accelOut已设为0，这里移除累加逻辑)
     if (isPressing.current) {
-      player.angle += player.rotSpeed; // 转动
-      player.rVelocity += PLAYER_CONFIG.accelOut; // 主动加速 (力度已减小)
-    } else {
-      // 松开时不转动
-      player.rVelocity -= player.gravity; // 受重力下落
+      player.angle += player.rotSpeed; 
+      // 以前这里是 player.rVelocity += accelOut，现在去掉了
     }
+    
+    // 重力始终存在，如果不靠吃光点，就会一直掉
+    player.rVelocity -= player.gravity; 
 
-    player.rVelocity *= player.drag; // 空气阻力 (已加大，提供阻尼感)
+    player.rVelocity *= player.drag; 
     player.radius += player.rVelocity;
 
     // 下界限制与反弹
     if (player.radius < player.baseRadius) {
       player.radius = player.baseRadius;
       if (player.rVelocity < -1) {
-        player.rVelocity = -player.rVelocity * 0.4; // 反弹系数稍小
+        player.rVelocity = -player.rVelocity * 0.4; 
         shake.current = Math.min(Math.abs(player.rVelocity) * 2, 5);
       } else {
         player.rVelocity = 0;
       }
     }
 
-    // 3. 中心停留死亡机制
+    // 中心停留死亡机制
     const DANGER_ZONE = player.baseRadius + 10;
     if (player.radius <= DANGER_ZONE) {
         player.centerTime++;
-        
-        // 5秒后开始警告 (300 frames)
         if (player.centerTime > CENTER_SAFE_LIMIT) {
             setCenterWarning(true);
-            shake.current = (player.centerTime - CENTER_SAFE_LIMIT) / 20; // 震动越来越强
-            
-            // 8秒后死亡 (480 frames)
+            shake.current = (player.centerTime - CENTER_SAFE_LIMIT) / 20; 
             if (player.centerTime > CENTER_DEATH_LIMIT) {
-                createExplosion(player.x, player.y, COLORS.enemy, 30, 20); // 爆炸
+                createExplosion(player.x, player.y, COLORS.enemy, 30, 20); 
                 createShockwave(0, 0, COLORS.enemy);
                 shake.current = 40;
                 setHighScore(prev => Math.max(prev, scoreRef.current));
@@ -286,7 +288,6 @@ export const LeapOrbitGame: React.FC = () => {
             }
         }
     } else {
-        // 离开危险区，重置计时
         if (player.centerTime > 0) {
              player.centerTime = 0;
              setCenterWarning(false);
@@ -321,7 +322,7 @@ export const LeapOrbitGame: React.FC = () => {
     cameraRef.current.y += (targetCamY - cameraRef.current.y) * camLerp;
     cameraRef.current.zoom += (targetZoom - cameraRef.current.zoom) * zoomLerp;
 
-    // 2. 实体逻辑
+    // 实体逻辑
     spawnEntity();
 
     for (let i = entitiesRef.current.length - 1; i >= 0; i--) {
@@ -336,10 +337,9 @@ export const LeapOrbitGame: React.FC = () => {
       
       if (e.scale < e.maxScale) e.scale += 0.1;
       
-      if (e.type === 'enemy') {
-        e.angle += e.moveSpeed;
-        e.rotation += 0.05;
-      }
+      // 逻辑变更：所有物体（包括光点）都会移动
+      e.angle += e.moveSpeed;
+      if (e.type === 'enemy') e.rotation += 0.05;
 
       // 磁铁
       let magnetSucked = false;
@@ -373,12 +373,13 @@ export const LeapOrbitGame: React.FC = () => {
           scoreRef.current += 1;
           createExplosion(ex, ey, 'white', 8, 8);
           
-          // 5. 吃到光点的弹力 (动态加大)
-          // 基础弹力 12 (很大)，并且随着距离增加而增加
-          const baseBoost = 12.0; 
-          const distanceBoost = player.radius / 400; // 每飞出 400px，弹力 +1
+          // 逻辑变更：强力弹射
+          // 因为没有主动推力，这里的弹射力度必须足够大
+          const baseBoost = 15.0; // 基础弹力加强
+          const distanceBoost = player.radius / 300; 
           const totalBoost = baseBoost + distanceBoost;
 
+          // 直接赋值速度，确保每次吃到都像踩了弹簧
           player.rVelocity = Math.max(player.rVelocity + totalBoost, totalBoost);
           
           entitiesRef.current.splice(i, 1);
@@ -778,9 +779,9 @@ export const LeapOrbitGame: React.FC = () => {
                     <span className="text-xs text-slate-500 font-mono mb-8 block">{GAME_VERSION}</span>
                     
                     <div className="space-y-4 mb-8 text-sm text-slate-300">
-                        <p><span className="text-cyan-400 font-bold">按住屏幕</span> 旋转并加速</p>
-                        <p><span className="text-red-400 font-bold">松开屏幕</span> 垂直下落</p>
-                        <p>不要在中心停留超过 <span className="text-yellow-400 font-bold">5秒</span></p>
+                        <p><span className="text-cyan-400 font-bold">按住屏幕</span> 仅调整角度</p>
+                        <p><span className="text-white font-bold">撞击光点</span> 获得动力弹射</p>
+                        <p><span className="text-red-400 font-bold">注意</span> 离开光点会坠落</p>
                     </div>
 
                     <button 
