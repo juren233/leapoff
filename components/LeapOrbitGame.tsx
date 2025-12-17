@@ -2,16 +2,16 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType, FloatingText } from '../types';
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash } from 'lucide-react';
 
-const GAME_VERSION = "v6.9.7-Visuals";
+const GAME_VERSION = "v6.9.10-Turbo";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
   baseRadius: 100,
   accelOut: 0,    // 移除主动推力
-  gravity: 0.125, // 引力减半 (0.25 -> 0.125)，解决弹起后过快坠落的问题
+  gravity: 0.125, // 保持原版引力
   drag: 0.94,     // 空气阻力
-  rotSpeed: 0.0045, 
-  dashRotSpeed: 0.018, 
+  rotSpeed: 0.01, // 基础转速调整为 0.01 (用户指定)
+  dashRotSpeed: 0.03, // 冲刺转速适配调整，保持冲刺感
   size: 14,
   trailLength: 25,
 };
@@ -31,7 +31,7 @@ const COLORS = {
   grid: '#333333'
 };
 
-// 中心死亡倒计时设定 (60fps)
+// 中心死亡倒计时设定 (60fps) - 保持不变
 const CENTER_SAFE_LIMIT = 300; // 5秒
 const CENTER_DEATH_LIMIT = 480; // 8秒
 
@@ -126,7 +126,7 @@ export const LeapOrbitGame: React.FC = () => {
     starsRef.current = newStars;
   };
 
-  const createExplosion = (x: number, y: number, color: string, count = 12, speed = 12) => {
+  const createExplosion = (x: number, y: number, color: string, count = 12, speed = 15) => { // Speed 12 -> 15
     for (let i = 0; i < count; i++) {
       particlesRef.current.push({
         x,
@@ -158,7 +158,7 @@ export const LeapOrbitGame: React.FC = () => {
           text,
           color,
           life: 1.0,
-          vy: -1.5, // Float up
+          vy: -1.9, // Speed up float (-1.5 -> -1.9)
           size
       });
   };
@@ -188,7 +188,7 @@ export const LeapOrbitGame: React.FC = () => {
               scale: 1,
               maxScale: 1,
               rotation: 0,
-              moveSpeed: 0.0015, // 内圈速度微调
+              moveSpeed: 0.0019, // 内圈速度微调 (0.0015 -> 0.0019)
               size: 14,
               color: COLORS.score,
               isSafety: true, 
@@ -251,7 +251,8 @@ export const LeapOrbitGame: React.FC = () => {
         scale: 0,
         maxScale: 1,
         rotation: 0,
-        moveSpeed: randomRange(0.001, 0.002) * (Math.random() > 0.5 ? 1 : -1),
+        // 内圈杂物速度加快
+        moveSpeed: randomRange(0.0012, 0.0025) * (Math.random() > 0.5 ? 1 : -1),
         size: type === 'score' ? 12 : 16,
         color: COLORS[type],
         isSafety: false
@@ -267,8 +268,8 @@ export const LeapOrbitGame: React.FC = () => {
 
     const currentOrbit = orbitRef.current;
     
-    // 生成频率：较低
-    const spawnChance = Math.min(0.08, 0.03 + (currentOrbit * 0.002)); 
+    // 生成频率：随速度增加适当提高，保持密度 (0.08 -> 0.1, 0.03 -> 0.0375)
+    const spawnChance = Math.min(0.1, 0.0375 + (currentOrbit * 0.0025)); 
     
     if (Math.random() > spawnChance) return;
 
@@ -336,8 +337,8 @@ export const LeapOrbitGame: React.FC = () => {
 
     const spawnAngle = randomRange(0, Math.PI * 2);
 
-    // 实体移动速度全局降速
-    const moveSpeed = randomRange(0.001, 0.0025) * (Math.random() > 0.5 ? 1 : -1);
+    // 实体移动速度全局加快
+    const moveSpeed = randomRange(0.0012, 0.0031) * (Math.random() > 0.5 ? 1 : -1);
 
     const entity: Entity = {
       id: entityIdCounter.current++,
@@ -550,10 +551,10 @@ export const LeapOrbitGame: React.FC = () => {
 
       if (!e.active) continue;
       
-      if (e.scale < e.maxScale) e.scale += 0.1;
+      if (e.scale < e.maxScale) e.scale += 0.125; // Appear faster (0.1 -> 0.125)
       
       e.angle += e.moveSpeed;
-      if (e.type === 'enemy') e.rotation += 0.05;
+      if (e.type === 'enemy') e.rotation += 0.06; // Rotate faster (0.05 -> 0.06)
 
       // 磁铁逻辑
       let magnetSucked = false;
@@ -604,6 +605,7 @@ export const LeapOrbitGame: React.FC = () => {
               if (player.radius > MAX_ALTITUDE) {
                   player.rVelocity = Math.max(player.rVelocity, 2); 
               } else {
+                  // 【修正】恢复为原版弹射力度，保持手感
                   const baseBoost = 15.0; 
                   const distanceBoost = player.radius / 300; 
                   const totalBoost = baseBoost + distanceBoost;
@@ -685,15 +687,15 @@ export const LeapOrbitGame: React.FC = () => {
       const p = particlesRef.current[i];
       p.x += p.vx;
       p.y += p.vy;
-      p.life -= 0.03;
+      p.life -= 0.038; // Faster fade (0.03 -> 0.038)
       if (p.life <= 0) particlesRef.current.splice(i, 1);
     }
     
     // 冲击波
     for (let i = shockwavesRef.current.length - 1; i >= 0; i--) {
         const sw = shockwavesRef.current[i];
-        sw.radius += 12;
-        sw.life -= 0.03;
+        sw.radius += 15; // Faster expansion (12 -> 15)
+        sw.life -= 0.038; // Faster fade (0.03 -> 0.038)
         if(sw.life <= 0) shockwavesRef.current.splice(i, 1);
     }
 
@@ -701,7 +703,7 @@ export const LeapOrbitGame: React.FC = () => {
     for (let i = floatingTextsRef.current.length - 1; i >= 0; i--) {
         const ft = floatingTextsRef.current[i];
         ft.y += ft.vy;
-        ft.life -= 0.02;
+        ft.life -= 0.025; // Faster fade (0.02 -> 0.025)
         if (ft.life <= 0) floatingTextsRef.current.splice(i, 1);
     }
 
