@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType } from '../types';
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw } from 'lucide-react';
 
-const GAME_VERSION = "v5.1-SmoothCam";
+const GAME_VERSION = "v5.2-DensityTweak";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -10,7 +10,7 @@ const PLAYER_CONFIG = {
   accelOut: 0.8,
   gravity: 0.5,
   drag: 0.96,
-  rotSpeed: 0.035,
+  rotSpeed: 0.022, // 1. 降低了转速 (原 0.035)
   size: 14,
   trailLength: 25,
 };
@@ -123,13 +123,22 @@ export const LeapOrbitGame: React.FC = () => {
     });
   };
 
-  // --- 实体生成逻辑 (范围缩小优化) ---
+  // --- 实体生成逻辑 (距离越远越密集) ---
   const spawnEntity = () => {
-    if (entitiesRef.current.length > 30) return;
-    if (Math.random() > 0.15) return;
+    const playerRadius = playerRef.current.radius;
+    
+    // 3. 动态调整实体上限和生成概率
+    // 基础容量 30，每远离 40px 增加 1 个容量。这样在高空时屏幕上会有更多光点，防止不够吃。
+    const maxEntities = 30 + Math.floor(Math.max(0, playerRadius - 100) / 40);
+    
+    if (entitiesRef.current.length > maxEntities) return;
+
+    // 生成概率随距离增加。基础 15%，随距离最高增加到 60%。
+    const spawnRate = 0.15 + Math.min(0.45, (playerRadius - 100) / 2000);
+
+    if (Math.random() > spawnRate) return;
 
     const currentScore = scoreRef.current;
-    const playerRadius = playerRef.current.radius;
     const r = Math.random();
     let type: EntityType = 'score';
 
@@ -139,7 +148,8 @@ export const LeapOrbitGame: React.FC = () => {
     else {
         const enemyRatio = Math.min(0.1 + (currentScore * 0.001), 0.4);
         const currentEnemies = entitiesRef.current.filter(e => e.type === 'enemy').length;
-        const maxEnemies = Math.min(5 + Math.floor(currentScore / 40), 20);
+        // 允许的敌人数量也稍微随距离放宽一点点，保持挑战性
+        const maxEnemies = Math.min(5 + Math.floor(currentScore / 40) + Math.floor(playerRadius / 500), 25);
 
         if (Math.random() < enemyRatio && currentEnemies < maxEnemies) {
             type = 'enemy';
@@ -148,12 +158,9 @@ export const LeapOrbitGame: React.FC = () => {
         }
     }
 
-    // 优化：生成范围缩小。之前是 100~700，现在改为 80~350。
-    // 这样玩家更容易连击，不需要飞特别远
+    // 生成范围
     const spawnRadiusOffset = randomRange(80, 350);
     const spawnDist = Math.max(PLAYER_CONFIG.baseRadius + 50, playerRadius + spawnRadiusOffset);
-    
-    // 角度随机
     const spawnAngle = randomRange(0, Math.PI * 2);
 
     const entity: Entity = {
@@ -198,11 +205,11 @@ export const LeapOrbitGame: React.FC = () => {
     isPressing.current = false;
     
     // 初始生成
-    for(let i=0; i<10; i++) {
+    for(let i=0; i<12; i++) { // 初始多生成一点
         entitiesRef.current.push({
             id: entityIdCounter.current++,
             type: 'score',
-            angle: (Math.PI * 2 / 10) * i,
+            angle: (Math.PI * 2 / 12) * i,
             dist: PLAYER_CONFIG.baseRadius + 150,
             active: true,
             scale: 1,
@@ -268,29 +275,21 @@ export const LeapOrbitGame: React.FC = () => {
     const hasShield = player.shieldTime > 0;
     const hasMagnet = player.magnetTime > 0;
 
-    // --- 相机逻辑优化：聚焦中心与玩家的中点，并根据距离自动缩放 ---
+    // --- 相机逻辑 ---
     const { width, height } = dimensions.current;
     
-    // 目标中心点：玩家位置和世界原点(0,0) 的中点
-    // 这样能保证 玩家 和 中心 都在屏幕较为居中的位置
     const targetCamX = player.x * 0.5;
     const targetCamY = player.y * 0.5;
 
-    // 目标缩放计算：
-    // 我们希望屏幕能容纳的范围至少是 玩家到原点的距离 * 2 (直径) + 一些余量
-    // 距离越远，Zoom 越小
-    const margin = 250; // 视野余量
+    const margin = 250;
     const requiredCoverage = (player.radius * 2) + margin; 
     const minScreenDim = Math.min(width, height);
     
     let targetZoom = minScreenDim / requiredCoverage;
-    
-    // 限制 Zoom 范围，防止缩太小看不清，或放太大
     targetZoom = Math.max(0.35, Math.min(1.0, targetZoom));
 
-    // 使用 Lerp 平滑过渡相机，避免眩晕
-    const camLerp = 0.08; // 移动平滑系数
-    const zoomLerp = 0.05; // 缩放平滑系数
+    const camLerp = 0.08;
+    const zoomLerp = 0.05;
 
     cameraRef.current.x += (targetCamX - cameraRef.current.x) * camLerp;
     cameraRef.current.y += (targetCamY - cameraRef.current.y) * camLerp;
@@ -348,7 +347,8 @@ export const LeapOrbitGame: React.FC = () => {
           scoreRef.current += 1;
           createExplosion(ex, ey, 'white', 8, 8);
           
-          const boost = 3.5; 
+          // 2. 加大了弹射力度 (原 3.5 -> 6.0)
+          const boost = 6.0; 
           player.rVelocity = Math.max(player.rVelocity + boost, boost);
           
           entitiesRef.current.splice(i, 1);
