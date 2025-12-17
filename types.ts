@@ -22,6 +22,7 @@ export interface Player {
   trail: Point[];
   shieldTime: number;
   magnetTime: number;
+  centerTime: number; // Time spent at the center hub
 }
 
 export interface Entity {
