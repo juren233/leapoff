@@ -2,15 +2,15 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType } from '../types';
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle } from 'lucide-react';
 
-const GAME_VERSION = "v5.4-PhysicsTuned";
+const GAME_VERSION = "v5.5-ControlFix";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
   baseRadius: 100,
-  accelOut: 0.45, // 2. 减小主动加速力度 (让主动跳跃没那么猛)
-  gravity: 0.20,  // 2. 引力微调回 0.20，配合阻尼防止飘太高
-  drag: 0.95,     // 2. 阻力加大 (0.98 -> 0.95)，增加"阻尼感"，速度衰减更快
-  rotSpeed: 0.014, // 1. 转速大幅调慢 (0.020 -> 0.014)
+  accelOut: 0.25, // 2. 大幅减小主动加速力度 (0.45 -> 0.25)，速度增加会很平缓
+  gravity: 0.12,  // 2. 配套减小引力，防止飞不起来
+  drag: 0.96,     // 2. 阻力加大 (0.95 -> 0.96)，增加"粘稠感"和阻尼，限制最高速
+  rotSpeed: 0.005, // 1. 转速再次大幅调慢 (0.014 -> 0.005)，解决晕头转向问题
   size: 14,
   trailLength: 25,
 };
