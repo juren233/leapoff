@@ -37,6 +37,11 @@ export interface Entity {
   color: string;
   rotation: number;
   moveSpeed: number;
+  // New properties for Safety Ring logic
+  isSafety?: boolean;       // If true, this orb respawns and belongs to the inner ring
+  baseDist?: number;        // Original distance for wobble calculation
+  respawnTimer?: number;    // Frames until respawn
+  wobblePhase?: number;     // Random offset for movement
 }
 
 export interface Particle {

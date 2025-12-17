@@ -1,22 +1,22 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType } from '../types';
-import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw } from 'lucide-react';
 
-const GAME_VERSION = "v6.2-PersistentWorld";
+const GAME_VERSION = "v6.4-OrbitMechanics";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
   baseRadius: 100,
-  accelOut: 0,    // 2. 移除主动推力，按住不再加速
-  gravity: 0.25,  // 2. 保持较强引力，需要靠吃球对抗
-  drag: 0.94,     // 2. 空气阻力
-  rotSpeed: 0.008, // 1. 转速适中，方便微调角度
+  accelOut: 0,    // 移除主动推力
+  gravity: 0.25,  // 引力
+  drag: 0.94,     // 空气阻力
+  rotSpeed: 0.008, // 转速
   size: 14,
   trailLength: 25,
 };
 
-// 4. 游戏边界设定
-const MAX_ALTITUDE = 3800; // 超过这个高度，吃球不再大力弹射
+// 4. 游戏边界设定 - 再次降低高度限制 (原2200 -> 1500)
+const MAX_ALTITUDE = 1500; 
 
 const COLORS = {
   player: '#00d2ff',
@@ -31,7 +31,7 @@ const COLORS = {
 
 // 3. 中心死亡倒计时设定 (60fps)
 const CENTER_SAFE_LIMIT = 300; // 5秒
-const CENTER_DEATH_LIMIT = 480; // 8秒 (5秒预警 + 3秒死亡)
+const CENTER_DEATH_LIMIT = 480; // 8秒
 
 interface Star {
   x: number;
@@ -50,17 +50,20 @@ export const LeapOrbitGame: React.FC = () => {
   const [uiGameState, setUiGameState] = useState<'START' | 'PLAYING' | 'GAMEOVER'>('START');
   const [buffs, setBuffs] = useState({ shield: false, magnet: false });
   const [centerWarning, setCenterWarning] = useState(false);
+  const [orbitCountDisplay, setOrbitCountDisplay] = useState(1);
 
   // --- Mutable Game State ---
   const gameStateRef = useRef<'START' | 'PLAYING' | 'GAMEOVER'>('START');
   const scoreRef = useRef(0);
+  const orbitRef = useRef(1);      // 当前是第几圈 (从1开始)
+  const lastAngleRef = useRef(0);  // 上一帧的角度，用于检测过线
   
   const frameId = useRef<number>(0);
   const isPressing = useRef<boolean>(false);
   const shake = useRef<number>(0);
   const dimensions = useRef({ width: 0, height: 0, cx: 0, cy: 0 });
 
-  // 摄像机状态 (x,y 是摄像机中心在世界坐标的位置，zoom 是缩放倍率)
+  // 摄像机状态
   const cameraRef = useRef({ x: 0, y: 0, zoom: 1 });
 
   // 玩家状态
@@ -134,8 +137,7 @@ export const LeapOrbitGame: React.FC = () => {
 
   // --- 实体生成逻辑 ---
   const spawnEntity = () => {
-    // 逻辑变更：固定实体上限，不再随距离增加，因为物体不会销毁了
-    // 设定一个较高的上限，保证全图有足够的东西吃，但也不至于无限生成卡死
+    // 逻辑变更：固定实体上限
     const maxEntities = 250; 
     
     if (entitiesRef.current.length > maxEntities) return;
@@ -154,7 +156,6 @@ export const LeapOrbitGame: React.FC = () => {
     else if (r < 0.02) type = 'magnet';
     else if (r < 0.03) type = 'nuke';
     else {
-        // 敌人生成率稍微降低，因为光点多了
         const enemyRatio = Math.min(0.05 + (currentScore * 0.0005), 0.25);
         const currentEnemies = entitiesRef.current.filter(e => e.type === 'enemy').length;
         const maxEnemies = Math.min(5 + Math.floor(currentScore / 50), 20);
@@ -166,18 +167,15 @@ export const LeapOrbitGame: React.FC = () => {
         }
     }
 
-    // 生成范围：确保不会生成在太远的地方导致没法玩，但也要覆盖足够广
-    // 如果玩家在低处，往高处生成；如果玩家在高处，就在附近生成
+    // 生成范围
     const baseSpawn = Math.max(PLAYER_CONFIG.baseRadius + 50, playerRadius - 500);
     const ceilingSpawn = Math.min(playerRadius + 600, MAX_ALTITUDE - 200);
     
-    // 如果已经在顶层了，就不再往上生成太多
     if (baseSpawn > MAX_ALTITUDE) return;
 
     const spawnDist = randomRange(baseSpawn, ceilingSpawn);
     const spawnAngle = randomRange(0, Math.PI * 2);
 
-    // 逻辑变更：所有物体都有轨道移动速度
     const moveSpeed = type === 'score' 
         ? randomRange(0.001, 0.005) * (Math.random() > 0.5 ? 1 : -1)
         : randomRange(-0.02, 0.02);
@@ -193,7 +191,8 @@ export const LeapOrbitGame: React.FC = () => {
       rotation: 0,
       moveSpeed: moveSpeed,
       size: type === 'score' ? 12 : (type === 'enemy' ? 18 : 16),
-      color: COLORS[type]
+      color: COLORS[type],
+      isSafety: false
     };
 
     entitiesRef.current.push(entity);
@@ -217,32 +216,41 @@ export const LeapOrbitGame: React.FC = () => {
     shockwavesRef.current = [];
     scoreRef.current = 0;
     
+    orbitRef.current = 1; // 重置圈数
+    lastAngleRef.current = 0;
+    
     cameraRef.current = { x: 0, y: 0, zoom: 1 };
 
     setScoreDisplay(0);
+    setOrbitCountDisplay(1);
     setBuffs({ shield: false, magnet: false });
     setCenterWarning(false);
     isPressing.current = false;
     
-    // 1. 恢复初始光点圈 (Radius 180)，给玩家保底
-    // 它们现在也会沿轨道缓慢移动
-    for(let i=0; i<16; i++) {
+    // 1. 初始光点圈 (Safety Ring)
+    // 加密：增加到40个，几乎无缝隙
+    const ringCount = 40;
+    const ringRadius = PLAYER_CONFIG.baseRadius + 80;
+    for(let i=0; i<ringCount; i++) {
         entitiesRef.current.push({
             id: entityIdCounter.current++,
             type: 'score',
-            angle: (Math.PI * 2 / 16) * i,
-            dist: PLAYER_CONFIG.baseRadius + 80, // R = 180
+            angle: (Math.PI * 2 / ringCount) * i,
+            dist: ringRadius, 
+            baseDist: ringRadius, // 记录基础距离用于摆动
             active: true,
             scale: 1,
             maxScale: 1,
             rotation: 0,
-            moveSpeed: 0.003, // 缓慢公转
+            moveSpeed: 0.003, 
             size: 14,
-            color: COLORS.score
+            color: COLORS.score,
+            isSafety: true, // 标记为安全光点
+            wobblePhase: Math.random() * Math.PI * 2
         });
     }
 
-    // 2. 在外围生成大量随机光点，方便探索
+    // 2. 在外围生成大量随机光点
     for(let i=0; i<50; i++) {
         entitiesRef.current.push({
             id: entityIdCounter.current++,
@@ -255,7 +263,8 @@ export const LeapOrbitGame: React.FC = () => {
             rotation: 0,
             moveSpeed: randomRange(0.002, 0.005) * (Math.random() > 0.5 ? 1 : -1),
             size: 14,
-            color: COLORS.score
+            color: COLORS.score,
+            isSafety: false
         });
     }
   };
@@ -277,6 +286,34 @@ export const LeapOrbitGame: React.FC = () => {
       player.angle += player.rotSpeed; 
     }
     
+    // --- 圈数检测逻辑 (Orbit Logic) ---
+    // 计算当前的累计圈数 (angle / 2PI)
+    // 假设 angle 从 0 开始一直增加
+    const rawOrbits = player.angle / (Math.PI * 2);
+    const currentOrbitNum = Math.floor(rawOrbits) + 1; // 0-1 是第1圈
+
+    if (currentOrbitNum > orbitRef.current) {
+        // !!! 跨越了终点线，进入新的一圈 !!!
+        orbitRef.current = currentOrbitNum;
+        setOrbitCountDisplay(currentOrbitNum);
+        
+        // 视觉提示
+        shake.current = 5;
+        createShockwave(0, 0, '#00d2ff');
+
+        // 逻辑要求：每一圈补回之前吃掉的光点
+        // 遍历所有 isSafety 的实体，如果 active=false，则重生
+        entitiesRef.current.forEach(e => {
+            if (e.isSafety && !e.active) {
+                e.active = true;
+                e.scale = 0; // 动画效果
+                const px = Math.cos(e.angle) * e.dist;
+                const py = Math.sin(e.angle) * e.dist;
+                createExplosion(px, py, COLORS.score, 5, 2);
+            }
+        });
+    }
+
     // 重力
     player.rVelocity -= player.gravity; 
 
@@ -334,7 +371,7 @@ export const LeapOrbitGame: React.FC = () => {
     const { width, height } = dimensions.current;
     const targetCamX = player.x * 0.5;
     const targetCamY = player.y * 0.5;
-    const margin = 250;
+    const margin = 200; // 稍微减小 margin 适应小屏幕
     const requiredCoverage = (player.radius * 2) + margin; 
     const minScreenDim = Math.min(width, height);
     let targetZoom = minScreenDim / requiredCoverage;
@@ -348,13 +385,30 @@ export const LeapOrbitGame: React.FC = () => {
     // 实体逻辑
     spawnEntity();
 
+    const now = Date.now();
+    const currentOrbit = orbitRef.current;
+
     for (let i = entitiesRef.current.length - 1; i >= 0; i--) {
       const e = entitiesRef.current[i];
       
-      // 关键修复：移除了距离销毁逻辑。
-      // 以前这里有 if (Math.abs(e.dist - player.radius) > 1500) ... 现在删掉了。
-      // 这样物体只要没被吃掉，就会一直存在。
-      
+      // Safety Ring Logic (Orbit Based)
+      if (e.isSafety && e.active) {
+          // 逻辑要求：从第二圈开始，随机移动
+          if (currentOrbit >= 2) {
+              // 圈数越高，摆动幅度越大。从第2圈开始幅度较小，慢慢变大。
+              // 基础幅度 15，每多一圈加 5，上限 50
+              const intensity = Math.min(50, 15 + (currentOrbit - 2) * 5);
+              
+              // 使用正弦波模拟“呼吸”式浮动，避免乱跑
+              // 加入 phase 保证每个球相位不同
+              const wobble = Math.sin(now * 0.002 + (e.wobblePhase || 0)) * intensity;
+              e.dist = (e.baseDist || e.dist) + wobble;
+          } else {
+              // 第一圈保持绝对静止稳定
+              if (e.baseDist) e.dist = e.baseDist;
+          }
+      }
+
       if (!e.active) continue;
       
       if (e.scale < e.maxScale) e.scale += 0.1;
@@ -372,12 +426,14 @@ export const LeapOrbitGame: React.FC = () => {
         const distSq = dx * dx + dy * dy;
 
         if (distSq < 100000) {
-          e.dist += (player.radius - e.dist) * 0.2;
-          let diffAngle = player.angle - e.angle;
-          while (diffAngle > Math.PI) diffAngle -= Math.PI * 2;
-          while (diffAngle < -Math.PI) diffAngle += Math.PI * 2;
-          e.angle += diffAngle * 0.15;
-          if (distSq < 3000) magnetSucked = true;
+            // Safety orbs resistance to magnet (prevent pulling them out of orbit too much)
+            const pullFactor = e.isSafety ? 0.05 : 0.2;
+            e.dist += (player.radius - e.dist) * pullFactor;
+            let diffAngle = player.angle - e.angle;
+            while (diffAngle > Math.PI) diffAngle -= Math.PI * 2;
+            while (diffAngle < -Math.PI) diffAngle += Math.PI * 2;
+            e.angle += diffAngle * (e.isSafety ? 0.05 : 0.15);
+            if (distSq < 3000) magnetSucked = true;
         }
       }
 
@@ -396,18 +452,20 @@ export const LeapOrbitGame: React.FC = () => {
           
           // 逻辑变更：高度限制
           if (player.radius > MAX_ALTITUDE) {
-              // 如果已经飞得很高了，吃球不再给强力推力
-              // 给一个微小的速度，防止立即下坠，但也不再上升
               player.rVelocity = Math.max(player.rVelocity, 2); 
           } else {
-              // 正常强力弹射
               const baseBoost = 15.0; 
               const distanceBoost = player.radius / 300; 
               const totalBoost = baseBoost + distanceBoost;
               player.rVelocity = Math.max(player.rVelocity + totalBoost, totalBoost);
           }
           
-          entitiesRef.current.splice(i, 1);
+          if (e.isSafety) {
+              e.active = false;
+              // 移除倒计时逻辑，改为按圈重置
+          } else {
+              entitiesRef.current.splice(i, 1);
+          }
           
         } else if (e.type === 'shield') {
           player.shieldTime = 400;
@@ -559,7 +617,14 @@ export const LeapOrbitGame: React.FC = () => {
     ctx.strokeStyle = player.centerTime > CENTER_SAFE_LIMIT ? `rgba(255, 0, 0, 0.5)` : `rgba(0, 210, 255, 0.3)`;
     ctx.stroke();
     
-    // 安全区边界线 (Start Line)
+    // 安全区边界线 (Start Line) - 0度线指示
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(PLAYER_CONFIG.baseRadius + 50, 0); // 简单的0度指示线
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 2 / cam.zoom;
+    ctx.stroke();
+
     ctx.beginPath();
     ctx.arc(0, 0, PLAYER_CONFIG.baseRadius, 0, Math.PI * 2);
     ctx.strokeStyle = player.centerTime > CENTER_SAFE_LIMIT ? 'rgba(255, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)';
@@ -595,7 +660,10 @@ export const LeapOrbitGame: React.FC = () => {
 
     // 实体
     entitiesRef.current.forEach(e => {
-        if (!e.active) return;
+        // Draw inactive safety orbs as ghosts? Or just hidden.
+        // Let's hide them for now to simulate "being eaten".
+        if (!e.active) return; 
+
         const x = Math.cos(e.angle) * e.dist;
         const y = Math.sin(e.angle) * e.dist;
         const s = e.size * e.scale;
@@ -621,6 +689,7 @@ export const LeapOrbitGame: React.FC = () => {
         } else {
             ctx.fillStyle = e.color;
             ctx.shadowColor = e.color;
+            // Safety orbs might look slightly different?
             ctx.shadowBlur = e.type === 'score' ? 5 : 15;
             ctx.beginPath();
             ctx.arc(0, 0, s, 0, Math.PI * 2);
@@ -775,6 +844,16 @@ export const LeapOrbitGame: React.FC = () => {
             </div>
         </div>
 
+        {/* Orbit Counter HUD */}
+        {uiGameState === 'PLAYING' && (
+             <div className="absolute top-4 right-4 flex items-center gap-2 pointer-events-none z-20">
+                <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500 shadow-[0_0_10px_#00d2ff]">
+                    <RotateCw size={16} className="text-blue-400" />
+                </div>
+                <span className="text-blue-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">第 {orbitCountDisplay} 圈</span>
+            </div>
+        )}
+
         {/* Center Danger Warning */}
         {centerWarning && uiGameState === 'PLAYING' && (
              <div className="absolute top-24 left-1/2 -translate-x-1/2 pointer-events-none z-20 animate-pulse">
@@ -807,6 +886,9 @@ export const LeapOrbitGame: React.FC = () => {
                         <p><span className="text-cyan-400 font-bold">按住屏幕</span> 仅调整角度</p>
                         <p><span className="text-white font-bold">撞击光点</span> 获得动力弹射</p>
                         <p><span className="text-red-400 font-bold">注意</span> 离开光点会坠落</p>
+                        <p className="mt-2 text-xs text-yellow-500 border-t border-white/10 pt-2">
+                             每完成一圈，内圈光点将重生
+                        </p>
                     </div>
 
                     <button 
