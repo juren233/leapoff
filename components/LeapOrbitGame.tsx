@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType } from '../types';
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw } from 'lucide-react';
 
-const GAME_VERSION = "v6.5-OrbitChallenge";
+const GAME_VERSION = "v6.6-SpeedFix";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -10,7 +10,7 @@ const PLAYER_CONFIG = {
   accelOut: 0,    // 移除主动推力
   gravity: 0.25,  // 引力
   drag: 0.94,     // 空气阻力
-  rotSpeed: 0.0055, // 1. 降低转向速度，解决“视觉加速”带来的眩晕感 (原 0.008)
+  rotSpeed: 0.008, // 1. 恢复灵敏的转向速度 (原 0.0055 太慢导致手感奇怪)
   size: 14,
   trailLength: 25,
 };
@@ -137,38 +137,36 @@ export const LeapOrbitGame: React.FC = () => {
 
   // --- 实体生成逻辑 ---
   const spawnEntity = () => {
-    // 逻辑变更：固定实体上限
     const maxEntities = 300; 
     if (entitiesRef.current.length > maxEntities) return;
 
     const currentOrbit = orbitRef.current;
     
-    // 2. 从第三圈开始，增加生成频率（密度）
-    // 基础生成率 0.8，第三圈后提升到 0.88
-    const spawnRate = currentOrbit >= 3 ? 0.88 : 0.8; 
+    // 生成频率
+    // Orbit 3+ 稍微增加频率
+    const spawnRate = currentOrbit >= 3 ? 0.9 : 0.8; 
     if (Math.random() > spawnRate) return;
 
     const playerRadius = playerRef.current.radius;
-    
-    // 3. 生成类型逻辑
     let type: EntityType = 'score';
 
     if (currentOrbit >= 3) {
         // --- 困难模式逻辑 (第3圈+) ---
-        // 严格按照 3:7 比例 (Enemy : Props)
+        // 严格按照 3:7 比例 (尖刺 : 道具)
+        // 道具包括：光点(Score)、护盾、磁铁、核弹
         if (Math.random() < 0.3) {
             type = 'enemy';
         } else {
-            // 70% 是有益道具
+            // 70% 有益物品
             const rProp = Math.random();
+            // 在有益物品中，分配 Buff 的概率
             if (rProp < 0.05) type = 'shield';
             else if (rProp < 0.10) type = 'magnet';
-            else if (rProp < 0.13) type = 'nuke';
+            else if (rProp < 0.12) type = 'nuke';
             else type = 'score';
         }
     } else {
         // --- 简单模式逻辑 (第1-2圈) ---
-        // 主要是光点，少量稀有道具，敌人随分数极少增加
         const r = Math.random();
         if (r < 0.01) type = 'shield';
         else if (r < 0.02) type = 'magnet';
@@ -196,9 +194,10 @@ export const LeapOrbitGame: React.FC = () => {
     const spawnDist = randomRange(baseSpawn, ceilingSpawn);
     const spawnAngle = randomRange(0, Math.PI * 2);
 
-    const moveSpeed = type === 'score' 
-        ? randomRange(0.001, 0.005) * (Math.random() > 0.5 ? 1 : -1)
-        : randomRange(-0.02, 0.02);
+    // 2. 修复速度不一致问题
+    // 之前 Enemy/Props 速度范围是 (-0.02, 0.02)，比 Score 快太多，导致视觉上“有些东西飞得快”
+    // 现在统一降低速度，使其与光点速度接近，解决“加速”错觉
+    const moveSpeed = randomRange(0.002, 0.006) * (Math.random() > 0.5 ? 1 : -1);
 
     const entity: Entity = {
       id: entityIdCounter.current++,
@@ -236,7 +235,7 @@ export const LeapOrbitGame: React.FC = () => {
     shockwavesRef.current = [];
     scoreRef.current = 0;
     
-    orbitRef.current = 1; // 重置圈数
+    orbitRef.current = 1; 
     lastAngleRef.current = 0;
     
     cameraRef.current = { x: 0, y: 0, zoom: 1 };
@@ -381,7 +380,7 @@ export const LeapOrbitGame: React.FC = () => {
     const hasMagnet = player.magnetTime > 0;
 
     // --- 相机逻辑 ---
-    // 1. 减小 camLerp 使镜头移动更平缓，减少“背景加速”的错觉
+    // 1. 恢复较快的 camLerp，保持街机手感 (原 0.05 -> 0.08)
     const { width, height } = dimensions.current;
     const targetCamX = player.x * 0.5;
     const targetCamY = player.y * 0.5;
@@ -390,7 +389,7 @@ export const LeapOrbitGame: React.FC = () => {
     const minScreenDim = Math.min(width, height);
     let targetZoom = minScreenDim / requiredCoverage;
     targetZoom = Math.max(0.35, Math.min(1.0, targetZoom));
-    const camLerp = 0.05; // (原 0.08)
+    const camLerp = 0.08; 
     const zoomLerp = 0.05;
     cameraRef.current.x += (targetCamX - cameraRef.current.x) * camLerp;
     cameraRef.current.y += (targetCamY - cameraRef.current.y) * camLerp;
