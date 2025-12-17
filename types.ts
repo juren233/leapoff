@@ -1,4 +1,4 @@
-export type EntityType = 'score' | 'enemy' | 'shield' | 'magnet' | 'nuke';
+export type EntityType = 'score' | 'enemy' | 'shield' | 'magnet' | 'nuke' | 'dash';
 
 export interface Point {
   x: number;
@@ -22,6 +22,7 @@ export interface Player {
   trail: Point[];
   shieldTime: number;
   magnetTime: number;
+  dashTime: number; // Duration for the dash power-up
   centerTime: number; // Time spent at the center hub
 }
 

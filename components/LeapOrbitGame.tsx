@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType } from '../types';
-import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw } from 'lucide-react';
+import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame } from 'lucide-react';
 
-const GAME_VERSION = "v6.6-SpeedFix";
+const GAME_VERSION = "v6.7-DashAndBalance";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -10,7 +10,8 @@ const PLAYER_CONFIG = {
   accelOut: 0,    // 移除主动推力
   gravity: 0.25,  // 引力
   drag: 0.94,     // 空气阻力
-  rotSpeed: 0.008, // 1. 恢复灵敏的转向速度 (原 0.0055 太慢导致手感奇怪)
+  rotSpeed: 0.008, // 基础转向速度
+  dashRotSpeed: 0.025, // 冲刺时的转向速度
   size: 14,
   trailLength: 25,
 };
@@ -22,9 +23,10 @@ const COLORS = {
   player: '#00d2ff',
   enemy: '#ff3333',
   score: '#ffffff',
-  shield: '#00ff00',
-  magnet: '#bf00ff',
-  nuke: '#facc15',
+  shield: '#00ff00',   // Green
+  magnet: '#bf00ff',   // Purple
+  nuke: '#facc15',     // Yellow
+  dash: '#f97316',     // Orange
   background: '#111111',
   grid: '#333333'
 };
@@ -48,7 +50,7 @@ export const LeapOrbitGame: React.FC = () => {
   const [scoreDisplay, setScoreDisplay] = useState(0);
   const [highScore, setHighScore] = useState(0);
   const [uiGameState, setUiGameState] = useState<'START' | 'PLAYING' | 'GAMEOVER'>('START');
-  const [buffs, setBuffs] = useState({ shield: false, magnet: false });
+  const [buffs, setBuffs] = useState({ shield: false, magnet: false, dash: false });
   const [centerWarning, setCenterWarning] = useState(false);
   const [orbitCountDisplay, setOrbitCountDisplay] = useState(1);
 
@@ -84,6 +86,7 @@ export const LeapOrbitGame: React.FC = () => {
     trail: [],
     shieldTime: 0,
     magnetTime: 0,
+    dashTime: 0, // 冲刺剩余时间
     centerTime: 0
   });
 
@@ -137,48 +140,63 @@ export const LeapOrbitGame: React.FC = () => {
 
   // --- 实体生成逻辑 ---
   const spawnEntity = () => {
-    const maxEntities = 300; 
+    const maxEntities = 350; // 稍微增加上限以适应后期高密度
     if (entitiesRef.current.length > maxEntities) return;
 
     const currentOrbit = orbitRef.current;
     
-    // 生成频率
-    // Orbit 3+ 稍微增加频率
-    const spawnRate = currentOrbit >= 3 ? 0.9 : 0.8; 
+    // 生成频率：随圈数轻微提升
+    const baseSpawnRate = 0.8;
+    // 每一圈增加 0.02 概率，上限 0.95
+    const spawnRate = Math.min(0.95, baseSpawnRate + (currentOrbit * 0.02)); 
+    
     if (Math.random() > spawnRate) return;
 
     const playerRadius = playerRef.current.radius;
     let type: EntityType = 'score';
 
+    // 随机数用于决定是 敌人 还是 道具
+    // 道具包含：score(基本光点算作道具池填充), shield, magnet, nuke, dash
+    
+    // --- 概率分配逻辑 ---
     if (currentOrbit >= 3) {
-        // --- 困难模式逻辑 (第3圈+) ---
-        // 严格按照 3:7 比例 (尖刺 : 道具)
-        // 道具包括：光点(Score)、护盾、磁铁、核弹
+        // === 第三圈及以后 ===
+        // 严格 3:7 比例 (红刺 : 道具)
         if (Math.random() < 0.3) {
             type = 'enemy';
         } else {
-            // 70% 有益物品
-            const rProp = Math.random();
-            // 在有益物品中，分配 Buff 的概率
-            if (rProp < 0.05) type = 'shield';
-            else if (rProp < 0.10) type = 'magnet';
-            else if (rProp < 0.12) type = 'nuke';
-            else type = 'score';
+            // 70% 道具池 (含光点)
+            // 道具内部分配 (不含普通光点Score的Buff分配逻辑):
+            // 需求：1成紫色(Magnet), 2成橙色(Dash), 3成绿色(Shield), 4成黄色(Nuke)
+            // 这里我们先决定是出Buff还是出普通Score。为了游戏性，不能全是Buff。
+            // 假设 Buff 出现率为 20% (在道具池中)，剩下是普通光点。
+            if (Math.random() < 0.25) { // 25% 概率出特殊道具
+                const rProp = Math.random();
+                if (rProp < 0.1) type = 'magnet';      // 10% 紫
+                else if (rProp < 0.3) type = 'dash';   // 20% 橙 (0.1 + 0.2)
+                else if (rProp < 0.6) type = 'shield'; // 30% 绿 (0.3 + 0.3)
+                else type = 'nuke';                    // 40% 黄 (剩余)
+            } else {
+                type = 'score';
+            }
         }
     } else {
-        // --- 简单模式逻辑 (第1-2圈) ---
-        const r = Math.random();
-        if (r < 0.01) type = 'shield';
-        else if (r < 0.02) type = 'magnet';
-        else if (r < 0.03) type = 'nuke';
-        else {
-            const currentScore = scoreRef.current;
-            const enemyRatio = Math.min(0.05 + (currentScore * 0.0005), 0.25);
-            const currentEnemies = entitiesRef.current.filter(e => e.type === 'enemy').length;
-            const maxEnemies = Math.min(5 + Math.floor(currentScore / 50), 20);
-
-            if (Math.random() < enemyRatio && currentEnemies < maxEnemies) {
-                type = 'enemy';
+        // === 第三圈之前 (新手/发育期) ===
+        // 主要是光点，少量稀有道具，极少敌人
+        // 敌人概率随分数微增，上限 10%
+        const enemyChance = Math.min(0.01 + (scoreRef.current * 0.0002), 0.1);
+        
+        if (Math.random() < enemyChance) {
+            type = 'enemy';
+        } else {
+            // 道具内部分配：
+            // 需求：1成黄色(Nuke), 2成橙色(Dash), 2成紫色(Magnet), 5成绿色(Shield)
+            if (Math.random() < 0.15) { // 15% 概率出特殊道具
+                const rProp = Math.random();
+                if (rProp < 0.1) type = 'nuke';        // 10% 黄
+                else if (rProp < 0.3) type = 'dash';   // 20% 橙
+                else if (rProp < 0.5) type = 'magnet'; // 20% 紫
+                else type = 'shield';                  // 50% 绿
             } else {
                 type = 'score';
             }
@@ -194,9 +212,7 @@ export const LeapOrbitGame: React.FC = () => {
     const spawnDist = randomRange(baseSpawn, ceilingSpawn);
     const spawnAngle = randomRange(0, Math.PI * 2);
 
-    // 2. 修复速度不一致问题
-    // 之前 Enemy/Props 速度范围是 (-0.02, 0.02)，比 Score 快太多，导致视觉上“有些东西飞得快”
-    // 现在统一降低速度，使其与光点速度接近，解决“加速”错觉
+    // 速度归一化
     const moveSpeed = randomRange(0.002, 0.006) * (Math.random() > 0.5 ? 1 : -1);
 
     const entity: Entity = {
@@ -225,6 +241,7 @@ export const LeapOrbitGame: React.FC = () => {
       rVelocity: 0,
       shieldTime: 0,
       magnetTime: 0,
+      dashTime: 0, // Reset Dash
       centerTime: 0, 
       trail: [],
       x: 0,
@@ -242,7 +259,7 @@ export const LeapOrbitGame: React.FC = () => {
 
     setScoreDisplay(0);
     setOrbitCountDisplay(1);
-    setBuffs({ shield: false, magnet: false });
+    setBuffs({ shield: false, magnet: false, dash: false });
     setCenterWarning(false);
     isPressing.current = false;
     
@@ -299,11 +316,39 @@ export const LeapOrbitGame: React.FC = () => {
 
     const player = playerRef.current;
     
-    // --- 操作逻辑 ---
-    if (isPressing.current) {
-      player.angle += player.rotSpeed; 
+    // 状态检测
+    if (player.shieldTime > 0) player.shieldTime--;
+    if (player.magnetTime > 0) player.magnetTime--;
+    if (player.dashTime > 0) player.dashTime--;
+
+    const hasShield = player.shieldTime > 0;
+    const hasMagnet = player.magnetTime > 0;
+    const hasDash = player.dashTime > 0;
+
+    // --- 操作逻辑与物理 ---
+    if (hasDash) {
+        // === 冲刺状态逻辑 ===
+        // 1. 强制高速旋转
+        player.angle += PLAYER_CONFIG.dashRotSpeed;
+        
+        // 2. 锁定轨道高度 (模拟在当前轨道上飞驰)
+        // 减少重力影响，快速衰减径向速度
+        player.rVelocity *= 0.5; 
+        // 施加极小的反重力保持悬浮，或者直接忽略重力
+        // 这里选择忽略重力，让之前的动量慢慢消失
+    } else {
+        // === 正常状态逻辑 ===
+        if (isPressing.current) {
+            player.angle += player.rotSpeed; 
+        }
+        // 重力应用
+        player.rVelocity -= player.gravity; 
     }
-    
+
+    // 阻力
+    player.rVelocity *= player.drag; 
+    player.radius += player.rVelocity;
+
     // --- 圈数检测逻辑 ---
     const rawOrbits = player.angle / (Math.PI * 2);
     const currentOrbitNum = Math.floor(rawOrbits) + 1; 
@@ -325,12 +370,6 @@ export const LeapOrbitGame: React.FC = () => {
             }
         });
     }
-
-    // 重力
-    player.rVelocity -= player.gravity; 
-
-    player.rVelocity *= player.drag; 
-    player.radius += player.rVelocity;
 
     // 下界限制与反弹
     if (player.radius < player.baseRadius) {
@@ -374,17 +413,12 @@ export const LeapOrbitGame: React.FC = () => {
       player.trail.shift();
     }
 
-    if (player.shieldTime > 0) player.shieldTime--;
-    if (player.magnetTime > 0) player.magnetTime--;
-    const hasShield = player.shieldTime > 0;
-    const hasMagnet = player.magnetTime > 0;
-
     // --- 相机逻辑 ---
-    // 1. 恢复较快的 camLerp，保持街机手感 (原 0.05 -> 0.08)
+    // 冲刺时相机稍微拉远一点
     const { width, height } = dimensions.current;
     const targetCamX = player.x * 0.5;
     const targetCamY = player.y * 0.5;
-    const margin = 200;
+    const margin = hasDash ? 350 : 200; // 冲刺时视野变大
     const requiredCoverage = (player.radius * 2) + margin; 
     const minScreenDim = Math.min(width, height);
     let targetZoom = minScreenDim / requiredCoverage;
@@ -424,7 +458,7 @@ export const LeapOrbitGame: React.FC = () => {
 
       // 磁铁
       let magnetSucked = false;
-      if (e.type === 'score' && player.magnetTime > 0) {
+      if (e.type === 'score' && hasMagnet) {
         const ex = Math.cos(e.angle) * e.dist;
         const ey = Math.sin(e.angle) * e.dist;
         const dx = player.x - ex;
@@ -478,6 +512,12 @@ export const LeapOrbitGame: React.FC = () => {
           player.magnetTime = 600;
           createExplosion(ex, ey, COLORS.magnet, 15);
           entitiesRef.current.splice(i, 1);
+        } else if (e.type === 'dash') {
+          // 激活冲刺
+          player.dashTime = 150; // 2.5秒
+          createExplosion(ex, ey, COLORS.dash, 20);
+          createShockwave(ex, ey, COLORS.dash);
+          entitiesRef.current.splice(i, 1);
         } else if (e.type === 'nuke') {
           createExplosion(ex, ey, COLORS.nuke, 20);
           createShockwave(ex, ey, COLORS.nuke);
@@ -503,11 +543,13 @@ export const LeapOrbitGame: React.FC = () => {
           entitiesRef.current.splice(i, 1);
 
         } else if (e.type === 'enemy') {
-          if (player.shieldTime > 0) {
+          if (hasShield || hasDash) {
+            // 护盾或冲刺撞毁敌人
             createExplosion(ex, ey, COLORS.enemy, 20);
+            createShockwave(ex, ey, hasDash ? COLORS.dash : COLORS.shield);
             shake.current = 10;
             entitiesRef.current.splice(i, 1);
-            scoreRef.current += 5;
+            scoreRef.current += 10; // 冲刺撞毁敌人得分更高
           } else {
             createExplosion(player.x, player.y, COLORS.player, 30);
             setHighScore(prev => Math.max(prev, scoreRef.current));
@@ -540,7 +582,9 @@ export const LeapOrbitGame: React.FC = () => {
     
     if (scoreRef.current !== scoreDisplay) setScoreDisplay(scoreRef.current);
     setBuffs(prev => {
-        if (prev.shield !== hasShield || prev.magnet !== hasMagnet) return { shield: hasShield, magnet: hasMagnet };
+        if (prev.shield !== hasShield || prev.magnet !== hasMagnet || prev.dash !== hasDash) {
+            return { shield: hasShield, magnet: hasMagnet, dash: hasDash };
+        }
         return prev;
     });
   };
@@ -663,8 +707,6 @@ export const LeapOrbitGame: React.FC = () => {
 
     // 实体
     entitiesRef.current.forEach(e => {
-        // Draw inactive safety orbs as ghosts? Or just hidden.
-        // Let's hide them for now to simulate "being eaten".
         if (!e.active) return; 
 
         const x = Math.cos(e.angle) * e.dist;
@@ -689,10 +731,25 @@ export const LeapOrbitGame: React.FC = () => {
             }
             ctx.closePath();
             ctx.fill();
+        } else if (e.type === 'dash') {
+            // 绘制火焰形状 (冲刺道具)
+            ctx.fillStyle = e.color;
+            ctx.shadowColor = e.color;
+            ctx.shadowBlur = 15;
+            ctx.beginPath();
+            // 简单火焰形状
+            ctx.moveTo(0, -s);
+            ctx.quadraticCurveTo(s, 0, 0, s);
+            ctx.quadraticCurveTo(-s, 0, 0, -s);
+            ctx.fill();
+            // 内部核心
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(0, 0, s * 0.4, 0, Math.PI * 2);
+            ctx.fill();
         } else {
             ctx.fillStyle = e.color;
             ctx.shadowColor = e.color;
-            // Safety orbs might look slightly different?
             ctx.shadowBlur = e.type === 'score' ? 5 : 15;
             ctx.beginPath();
             ctx.arc(0, 0, s, 0, Math.PI * 2);
@@ -739,11 +796,11 @@ export const LeapOrbitGame: React.FC = () => {
             for (let i = 1; i < player.trail.length; i++) {
                 ctx.lineTo(player.trail[i].x, player.trail[i].y);
             }
-            ctx.strokeStyle = player.color;
-            ctx.lineWidth = player.size * 0.8;
+            ctx.strokeStyle = player.dashTime > 0 ? COLORS.dash : player.color;
+            ctx.lineWidth = player.size * (player.dashTime > 0 ? 1.5 : 0.8);
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
-            ctx.globalAlpha = 0.4;
+            ctx.globalAlpha = player.dashTime > 0 ? 0.8 : 0.4;
             ctx.stroke();
             ctx.globalAlpha = 1.0;
         }
@@ -751,9 +808,9 @@ export const LeapOrbitGame: React.FC = () => {
         // 玩家本体
         ctx.beginPath();
         ctx.arc(px, py, player.size, 0, Math.PI * 2);
-        ctx.fillStyle = player.color;
-        ctx.shadowColor = player.color;
-        ctx.shadowBlur = 15;
+        ctx.fillStyle = player.dashTime > 0 ? '#fff' : player.color;
+        ctx.shadowColor = player.dashTime > 0 ? COLORS.dash : player.color;
+        ctx.shadowBlur = player.dashTime > 0 ? 25 : 15;
         ctx.fill();
         ctx.shadowBlur = 0;
 
@@ -773,6 +830,14 @@ export const LeapOrbitGame: React.FC = () => {
             ctx.setLineDash([5, 5]);
             ctx.stroke();
             ctx.setLineDash([]);
+        }
+        if (player.dashTime > 0) {
+            // 冲刺特效环
+             ctx.beginPath();
+            ctx.arc(px, py, player.size + 12, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(249, 115, 22, ${0.6 + Math.sin(Date.now() / 50) * 0.4})`;
+            ctx.lineWidth = 4 / cam.zoom;
+            ctx.stroke();
         }
     }
 
@@ -845,6 +910,12 @@ export const LeapOrbitGame: React.FC = () => {
                 </div>
                 <span className="text-purple-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">磁吸已激活</span>
             </div>
+             <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.dash ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
+                <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center border border-orange-500 shadow-[0_0_10px_#f97316]">
+                    <Flame size={16} className="text-orange-400" />
+                </div>
+                <span className="text-orange-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">充能冲刺</span>
+            </div>
         </div>
 
         {/* Orbit Counter HUD */}
@@ -888,7 +959,7 @@ export const LeapOrbitGame: React.FC = () => {
                     <div className="space-y-4 mb-8 text-sm text-slate-300">
                         <p><span className="text-cyan-400 font-bold">按住屏幕</span> 仅调整角度</p>
                         <p><span className="text-white font-bold">撞击光点</span> 获得动力弹射</p>
-                        <p><span className="text-red-400 font-bold">注意</span> 离开光点会坠落</p>
+                        <p><span className="text-orange-400 font-bold">橙色道具</span> 可冲刺并撞毁敌人</p>
                         <p className="mt-2 text-xs text-yellow-500 border-t border-white/10 pt-2">
                              每完成一圈，内圈光点将重生
                         </p>
