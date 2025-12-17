@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType } from '../types';
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle } from 'lucide-react';
 
-const GAME_VERSION = "v6.1-RingRestored";
+const GAME_VERSION = "v6.2-PersistentWorld";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -14,6 +14,9 @@ const PLAYER_CONFIG = {
   size: 14,
   trailLength: 25,
 };
+
+// 4. 游戏边界设定
+const MAX_ALTITUDE = 3800; // 超过这个高度，吃球不再大力弹射
 
 const COLORS = {
   player: '#00d2ff',
@@ -131,10 +134,9 @@ export const LeapOrbitGame: React.FC = () => {
 
   // --- 实体生成逻辑 ---
   const spawnEntity = () => {
-    const playerRadius = playerRef.current.radius;
-    
-    // 逻辑变更：大量增加实体上限，满屏光点
-    const maxEntities = 80 + Math.floor(Math.max(0, playerRadius - 100) / 30);
+    // 逻辑变更：固定实体上限，不再随距离增加，因为物体不会销毁了
+    // 设定一个较高的上限，保证全图有足够的东西吃，但也不至于无限生成卡死
+    const maxEntities = 250; 
     
     if (entitiesRef.current.length > maxEntities) return;
 
@@ -144,6 +146,7 @@ export const LeapOrbitGame: React.FC = () => {
     if (Math.random() > spawnRate) return;
 
     const currentScore = scoreRef.current;
+    const playerRadius = playerRef.current.radius;
     const r = Math.random();
     let type: EntityType = 'score';
 
@@ -163,13 +166,18 @@ export const LeapOrbitGame: React.FC = () => {
         }
     }
 
-    // 生成范围
-    const spawnRadiusOffset = randomRange(50, 400); // 范围变大
-    const spawnDist = Math.max(PLAYER_CONFIG.baseRadius + 50, playerRadius + spawnRadiusOffset);
+    // 生成范围：确保不会生成在太远的地方导致没法玩，但也要覆盖足够广
+    // 如果玩家在低处，往高处生成；如果玩家在高处，就在附近生成
+    const baseSpawn = Math.max(PLAYER_CONFIG.baseRadius + 50, playerRadius - 500);
+    const ceilingSpawn = Math.min(playerRadius + 600, MAX_ALTITUDE - 200);
+    
+    // 如果已经在顶层了，就不再往上生成太多
+    if (baseSpawn > MAX_ALTITUDE) return;
+
+    const spawnDist = randomRange(baseSpawn, ceilingSpawn);
     const spawnAngle = randomRange(0, Math.PI * 2);
 
     // 逻辑变更：所有物体都有轨道移动速度
-    // 光点速度慢，敌人稍微快一点
     const moveSpeed = type === 'score' 
         ? randomRange(0.001, 0.005) * (Math.random() > 0.5 ? 1 : -1)
         : randomRange(-0.02, 0.02);
@@ -235,12 +243,12 @@ export const LeapOrbitGame: React.FC = () => {
     }
 
     // 2. 在外围生成大量随机光点，方便探索
-    for(let i=0; i<40; i++) {
+    for(let i=0; i<50; i++) {
         entitiesRef.current.push({
             id: entityIdCounter.current++,
             type: 'score',
             angle: randomRange(0, Math.PI * 2),
-            dist: randomRange(PLAYER_CONFIG.baseRadius + 150, PLAYER_CONFIG.baseRadius + 600),
+            dist: randomRange(PLAYER_CONFIG.baseRadius + 150, PLAYER_CONFIG.baseRadius + 1000),
             active: true,
             scale: 1,
             maxScale: 1,
@@ -264,14 +272,12 @@ export const LeapOrbitGame: React.FC = () => {
 
     const player = playerRef.current;
     
-    // --- 操作逻辑变更 ---
-    // 按住屏幕只负责转动，不负责加速 (accelOut已设为0，这里移除累加逻辑)
+    // --- 操作逻辑 ---
     if (isPressing.current) {
       player.angle += player.rotSpeed; 
-      // 以前这里是 player.rVelocity += accelOut，现在去掉了
     }
     
-    // 重力始终存在，如果不靠吃光点，就会一直掉
+    // 重力
     player.rVelocity -= player.gravity; 
 
     player.rVelocity *= player.drag; 
@@ -345,16 +351,14 @@ export const LeapOrbitGame: React.FC = () => {
     for (let i = entitiesRef.current.length - 1; i >= 0; i--) {
       const e = entitiesRef.current[i];
       
-      if (Math.abs(e.dist - player.radius) > 1500) {
-          entitiesRef.current.splice(i, 1);
-          continue;
-      }
+      // 关键修复：移除了距离销毁逻辑。
+      // 以前这里有 if (Math.abs(e.dist - player.radius) > 1500) ... 现在删掉了。
+      // 这样物体只要没被吃掉，就会一直存在。
       
       if (!e.active) continue;
       
       if (e.scale < e.maxScale) e.scale += 0.1;
       
-      // 逻辑变更：所有物体（包括光点）都会移动
       e.angle += e.moveSpeed;
       if (e.type === 'enemy') e.rotation += 0.05;
 
@@ -390,14 +394,18 @@ export const LeapOrbitGame: React.FC = () => {
           scoreRef.current += 1;
           createExplosion(ex, ey, 'white', 8, 8);
           
-          // 逻辑变更：强力弹射
-          // 因为没有主动推力，这里的弹射力度必须足够大
-          const baseBoost = 15.0; // 基础弹力加强
-          const distanceBoost = player.radius / 300; 
-          const totalBoost = baseBoost + distanceBoost;
-
-          // 直接赋值速度，确保每次吃到都像踩了弹簧
-          player.rVelocity = Math.max(player.rVelocity + totalBoost, totalBoost);
+          // 逻辑变更：高度限制
+          if (player.radius > MAX_ALTITUDE) {
+              // 如果已经飞得很高了，吃球不再给强力推力
+              // 给一个微小的速度，防止立即下坠，但也不再上升
+              player.rVelocity = Math.max(player.rVelocity, 2); 
+          } else {
+              // 正常强力弹射
+              const baseBoost = 15.0; 
+              const distanceBoost = player.radius / 300; 
+              const totalBoost = baseBoost + distanceBoost;
+              player.rVelocity = Math.max(player.rVelocity + totalBoost, totalBoost);
+          }
           
           entitiesRef.current.splice(i, 1);
           
