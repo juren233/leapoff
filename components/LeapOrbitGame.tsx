@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, EntityType } from '../types';
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw } from 'lucide-react';
 
-const GAME_VERSION = "v4.1-Optimized";
+const GAME_VERSION = "v4.2-CN";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -617,13 +617,13 @@ export const LeapOrbitGame: React.FC = () => {
                 <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500 shadow-[0_0_10px_#00ff00]">
                     <Shield size={16} className="text-green-400" />
                 </div>
-                <span className="text-green-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">SHIELD ACTIVE</span>
+                <span className="text-green-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">护盾已激活</span>
             </div>
             <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.magnet ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
                 <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500 shadow-[0_0_10px_#bf00ff]">
                     <Zap size={16} className="text-purple-400" />
                 </div>
-                <span className="text-purple-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">MAGNET ACTIVE</span>
+                <span className="text-purple-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">磁吸已激活</span>
             </div>
         </div>
 
@@ -641,14 +641,14 @@ export const LeapOrbitGame: React.FC = () => {
             <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/60 backdrop-blur-sm">
                 <div className="text-center p-8 border border-white/10 rounded-2xl bg-black/40 shadow-2xl max-w-sm mx-4 transform transition-all animate-in fade-in zoom-in duration-300">
                     <h1 className="text-4xl font-black mb-1 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                        LEAP ORBIT
+                        跃迁轨道
                     </h1>
                     <span className="text-xs text-slate-500 font-mono mb-8 block">{GAME_VERSION}</span>
                     
                     <div className="space-y-4 mb-8 text-sm text-slate-300">
-                        <p>Hold <span className="text-cyan-400 font-bold">TOUCH/CLICK</span> to leap out.</p>
-                        <p>Release to fall back.</p>
-                        <p>Collect <span className="text-white font-bold">DOTS</span>. Avoid <span className="text-red-500 font-bold">SPIKES</span>.</p>
+                        <p><span className="text-cyan-400 font-bold">按住屏幕</span> 向外跃迁</p>
+                        <p><span className="text-white/60">松开手指</span> 引力回落</p>
+                        <p>收集 <span className="text-white font-bold">光点</span>，躲避 <span className="text-red-500 font-bold">红色尖刺</span></p>
                     </div>
 
                     <button 
@@ -656,12 +656,12 @@ export const LeapOrbitGame: React.FC = () => {
                         className="group relative px-8 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-full transition-all hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(8,145,178,0.5)] flex items-center gap-2 mx-auto"
                     >
                         <Play size={20} className="fill-current" />
-                        START MISSION
+                        开始任务
                     </button>
                     
                     <div className="mt-8 flex justify-center gap-4 text-xs text-slate-500">
-                        <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#00ff00]"></div> Shield</div>
-                        <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_5px_#bf00ff]"></div> Magnet</div>
+                        <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#00ff00]"></div> 护盾</div>
+                        <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_5px_#bf00ff]"></div> 磁吸</div>
                     </div>
                 </div>
             </div>
@@ -674,16 +674,16 @@ export const LeapOrbitGame: React.FC = () => {
                     <div className="inline-block p-3 rounded-full bg-red-500/20 mb-4 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]">
                         <Skull size={32} className="text-red-500" />
                     </div>
-                    <h2 className="text-3xl font-black text-white mb-2">SYSTEM FAILURE</h2>
+                    <h2 className="text-3xl font-black text-white mb-2">任务失败</h2>
                     
                     <div className="grid grid-cols-2 gap-4 my-6">
                         <div className="bg-white/5 p-3 rounded-lg border border-white/10">
-                            <div className="text-xs text-slate-400 uppercase mb-1">Score</div>
+                            <div className="text-xs text-slate-400 uppercase mb-1">本次得分</div>
                             <div className="text-2xl font-mono font-bold text-white">{scoreDisplay}</div>
                         </div>
                         <div className="bg-white/5 p-3 rounded-lg border border-white/10">
                             <div className="text-xs text-slate-400 uppercase mb-1 flex items-center justify-center gap-1">
-                                <Trophy size={10} className="text-yellow-500" /> Best
+                                <Trophy size={10} className="text-yellow-500" /> 历史最高
                             </div>
                             <div className="text-2xl font-mono font-bold text-yellow-500">{highScore}</div>
                         </div>
@@ -694,7 +694,7 @@ export const LeapOrbitGame: React.FC = () => {
                         className="w-full py-3 bg-white hover:bg-slate-200 text-black font-bold rounded-full transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
                     >
                         <RefreshCw size={18} />
-                        RETRY
+                        重试
                     </button>
                 </div>
             </div>

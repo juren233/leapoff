@@ -1,5 +1,5 @@
 {
-  "name": "Leap Orbit Remastered",
-  "description": "An optimized and modernized version of the Leap Orbit arcade game. Jump orbits, collect scores, and dodge enemies in this fast-paced reaction game.",
+  "name": "跃迁轨道 (Leap Orbit)",
+  "description": "跃迁轨道街机游戏的中文重制版。在轨道间跳跃，收集分数，躲避敌人。快节奏的反应游戏。",
   "requestFramePermissions": []
 }

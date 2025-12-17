@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Leap Orbit Remastered</title>
+    <title>跃迁轨道 - Leap Orbit Remastered</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body {
@@ -11,6 +11,7 @@
         overflow: hidden;
         background-color: #111;
         touch-action: none; /* Prevent browser zooming/scrolling on mobile */
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
       }
       /* Custom scanline effect */
       .scanlines {
@@ -38,5 +39,7 @@
 </head>
   <body>
     <div id="root"></div>
+    <!-- 关键修复：添加入口脚本，否则部署后可能是白屏 -->
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>
