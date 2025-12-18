@@ -1052,7 +1052,7 @@ export const LeapOrbitGame: React.FC = () => {
                     <div className="mt-4 text-center text-xs text-slate-500">
                         {authMode === 'login' ? '没有账号? ' : '已有账号? '}
                         <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-cyan-400 hover:underline">
-                            {authMode === 'login' ? '立即注册' : '直接登录'}
+                            {authMode === 'login' ? '立即注册' : '点我登录'}
                         </button>
                     </div>
                 </div>
@@ -1074,7 +1074,7 @@ export const LeapOrbitGame: React.FC = () => {
                         {leaderboardLoading ? (
                             <div className="flex flex-col items-center justify-center h-40 text-slate-500 gap-2">
                                 <Loader2 size={24} className="animate-spin"/>
-                                <span className="text-xs">数据同步中...</span>
+                                <span className="text-xs">加载中...</span>
                             </div>
                         ) : (
                             <div className="space-y-2">
@@ -1141,7 +1141,7 @@ export const LeapOrbitGame: React.FC = () => {
                         </div>
                         <div className="border-t border-white/20 pt-4 mt-2">
                              <div className="flex justify-between items-end">
-                                <span className="text-xs text-slate-400 uppercase font-bold">最终总成绩</span>
+                                <span className="text-xs text-slate-400 uppercase font-bold">最终总分</span>
                                 <span className="text-4xl font-black text-white shadow-cyan-500 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]">
                                     {scoreDisplay.toLocaleString()}
                                 </span>
@@ -1170,14 +1170,14 @@ export const LeapOrbitGame: React.FC = () => {
                             </div>
                         ) : (
                             <button onClick={() => setShowAuthModal(true)} className="w-full text-center text-xs text-cyan-400/80 mt-2 bg-cyan-900/20 py-2 rounded hover:bg-cyan-900/40 transition-colors border border-cyan-500/20">
-                                未登录：点击登录以保存分数
+                                点我登录以同步分数至云端，与全球玩家PK霸榜
                             </button>
                         )}
                     </div>
 
                     <div className="bg-yellow-500/10 p-3 rounded-lg border border-yellow-500/20 mb-6 flex items-center justify-center gap-2">
                         <Trophy size={16} className="text-yellow-500" /> 
-                        <span className="text-xs text-slate-400 uppercase font-bold">历史记录</span>
+                        <span className="text-xs text-slate-400 uppercase font-bold">历史最高记录</span>
                         <span className="font-mono font-bold text-yellow-500">{highScore.toLocaleString()}</span>
                     </div>
 
@@ -1186,7 +1186,7 @@ export const LeapOrbitGame: React.FC = () => {
                             <Award size={16} /> 排行榜
                         </button>
                         <button onClick={startGame} className="flex-[2] py-3 bg-white hover:bg-slate-200 text-black font-bold rounded-full transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
-                            <RefreshCw size={18} /> 再次跃迁
+                            <RefreshCw size={18} /> 再来一次
                         </button>
                     </div>
                 </div>
