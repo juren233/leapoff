@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, Wifi, WifiOff, UploadCloud, Cloud } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v7.9.8-LinearHaptic";
+const GAME_VERSION = "v7.9.9-MsgUpdate";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -255,7 +255,8 @@ export const LeapOrbitGame: React.FC = () => {
 
         if (existing && existing.score >= score) {
             setHighScore(existing.score); // 同步云端最高分到本地显示
-            setUploadStatus({status: 'success', msg: '未破纪录'});
+            const diff = existing.score - score + 1; // 还需要多少分才能破纪录
+            setUploadStatus({status: 'success', msg: `再接再厉！还差${diff}分就破记录了！`});
             return; 
         }
 
