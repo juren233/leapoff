@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, Wifi, WifiOff, UploadCloud, Cloud } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v7.9.7-HapticTuned";
+const GAME_VERSION = "v7.9.8-LinearHaptic";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -554,8 +554,9 @@ export const LeapOrbitGame: React.FC = () => {
     deathTimerRef.current = maxDeathTimerRef.current; 
     shake.current = 15; 
     
-    // Death vibration pattern: Impact, pause, rumble
-    triggerHaptic([80, 50, 80, 50, 400]);
+    // Death vibration pattern: Impact, crunch, failure, explosion
+    // Using complex short patterns to simulate texture on linear motors
+    triggerHaptic([40, 30, 80, 30, 500]);
 
     const player = playerRef.current;
     createExplosion(player.x, player.y, COLORS.player, 40, 15);
@@ -646,7 +647,7 @@ export const LeapOrbitGame: React.FC = () => {
     
     // Shield Expiration Logic
     if (player.shieldTime > 0) {
-        if (player.shieldTime === 1) triggerHaptic(100); // Shorter warning
+        if (player.shieldTime === 1) triggerHaptic([40, 30, 15]); // Fading out warning
         player.shieldTime--;
     }
     if (player.magnetTime > 0) player.magnetTime--;
@@ -748,17 +749,17 @@ export const LeapOrbitGame: React.FC = () => {
           if (isDirectHit) { const boost = 15.0 + player.radius / 300; player.rVelocity = Math.max(player.rVelocity + boost, boost); }
           if (e.isSafety) e.active = false; else entitiesRef.current.splice(i, 1);
         } else if (e.type === 'shield') {
-          player.shieldTime = 400; triggerHaptic(15); // Subtle
+          player.shieldTime = 400; triggerHaptic(8); // Ultra short click
           createExplosion(ex, ey, COLORS.shield, 15); entitiesRef.current.splice(i, 1);
         } else if (e.type === 'magnet') {
-          player.magnetTime = 600; player.magnetCount = 0; triggerHaptic(15); // Subtle
+          player.magnetTime = 600; player.magnetCount = 0; triggerHaptic(8); // Ultra short click
           createExplosion(ex, ey, COLORS.magnet, 15); entitiesRef.current.splice(i, 1);
         } else if (e.type === 'dash') {
-          player.dashTime = 150; triggerHaptic(15); // Subtle
+          player.dashTime = 150; triggerHaptic(8); // Ultra short click
           createExplosion(ex, ey, COLORS.dash, 20); createShockwave(ex, ey, COLORS.dash); entitiesRef.current.splice(i, 1);
         } else if (e.type === 'nuke') {
           createExplosion(ex, ey, COLORS.nuke, 20); createShockwave(ex, ey, COLORS.nuke); shake.current = 20;
-          triggerHaptic([20, 20, 60]); // Tuned pattern
+          triggerHaptic([10, 10, 10, 10, 50, 20, 100]); // Shockwave rumble
           for (let j = entitiesRef.current.length - 1; j >= 0; j--) {
               const t = entitiesRef.current[j];
               if (t && t.type === 'enemy') {
@@ -774,7 +775,7 @@ export const LeapOrbitGame: React.FC = () => {
         } else if (e.type === 'enemy' && isDirectHit) {
             if (hasShield || hasDash || player.rVelocity > 0) {
                 createExplosion(ex, ey, COLORS.enemy, 20); createShockwave(ex, ey, COLORS.enemy);
-                triggerHaptic(40); // Crisper impact
+                triggerHaptic([12, 8, 25]); // "Crunch" feeling
                 spawnFloatingText(ex, ey, "+50", COLORS.enemy, 32); shake.current = 10; entitiesRef.current.splice(i, 1); actionScoreRef.current += 50; 
             } else triggerDyingSequence();
         }
