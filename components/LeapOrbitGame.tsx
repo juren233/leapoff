@@ -185,7 +185,7 @@ export const LeapOrbitGame: React.FC = () => {
           },
         });
         if (error) throw error;
-        alert("注册成功！");
+        alert("注册成功。请先验证邮箱再登录！");
         setAuthMode('login'); 
       } else {
         const { error } = await supabase.auth.signInWithPassword({
