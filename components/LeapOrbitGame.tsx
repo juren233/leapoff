@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, LeaderboardEntry } from '../types';
-import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, Wifi, WifiOff, UploadCloud, Cloud } from 'lucide-react';
+import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, Wifi, WifiOff, UploadCloud, Cloud, Coins } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v7.9.9-MsgUpdate";
+const GAME_VERSION = "v8.1.1-Fixes";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -18,6 +18,8 @@ const PLAYER_CONFIG = {
 };
 
 const MAX_ALTITUDE = 1500; 
+const BONUS_DURATION_FRAMES = 60 * 6; // 6 seconds at 60fps
+const BONUS_SCORE_THRESHOLD = 2000;
 
 const COLORS = {
   player: '#00d2ff',
@@ -26,7 +28,8 @@ const COLORS = {
   shield: '#00ff00',   
   magnet: '#bf00ff',   
   nuke: '#facc15',     
-  dash: '#f97316',     
+  dash: '#f97316',
+  coin: '#fbbf24',     
   background: '#111111',
   grid: '#333333'
 };
@@ -54,6 +57,14 @@ export const LeapOrbitGame: React.FC = () => {
   const [buffs, setBuffs] = useState({ shield: 0, magnet: 0, dash: 0 });
   const [centerWarning, setCenterWarning] = useState(false);
   const [orbitCountDisplay, setOrbitCountDisplay] = useState(1);
+  const [totalCoins, setTotalCoins] = useState(0); // 账号总金币
+  const [runCoins, setRunCoins] = useState(0);     // 本局获得金币
+  const [isBonusTimeUI, setIsBonusTimeUI] = useState(false);
+  const [bonusTimeLeft, setBonusTimeLeft] = useState(0);
+
+  // --- Refs for Stale Closure Prevention ---
+  const totalCoinsRef = useRef(0);
+
   const [gameStats, setGameStats] = useState({ 
     duration: 0, 
     formattedDuration: '0分0秒',
@@ -61,12 +72,12 @@ export const LeapOrbitGame: React.FC = () => {
     actionScore: 0,
     timeScore: 0,
     orbitBonus: 0,
-    multiplier: 1.0
+    multiplier: 1.0,
+    coinsCollected: 0
   });
 
   // --- Supabase / Auth / System State ---
   const [session, setSession] = useState<any>(null);
-  // CRITICAL FIX: Use a ref to track session in the game loop closure
   const sessionRef = useRef<any>(null);
 
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -80,7 +91,6 @@ export const LeapOrbitGame: React.FC = () => {
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   
-  // 新增：系统连接状态和上传状态
   const [systemStatus, setSystemStatus] = useState<{status: 'checking' | 'ok' | 'error', msg: string}>({status: 'checking', msg: '正在连接服务器...'});
   const [uploadStatus, setUploadStatus] = useState<{status: 'idle' | 'uploading' | 'success' | 'error', msg: string}>({status: 'idle', msg: ''});
 
@@ -89,11 +99,17 @@ export const LeapOrbitGame: React.FC = () => {
   const actionScoreRef = useRef(0); 
   const orbitRef = useRef(1);      
   const gameStartTimeRef = useRef(0);
-  const gameEndTimeRef = useRef<number | null>(null); // New Ref to track exact death time
+  const gameEndTimeRef = useRef<number | null>(null);
   const isFillingInnerZoneRef = useRef(true); 
   const deathTimerRef = useRef(0);
-  const maxDeathTimerRef = useRef(180); // 3秒慢动作特写
+  const maxDeathTimerRef = useRef(180);
   
+  // Coin & Bonus State Refs
+  const coinsRef = useRef(0); // Current run coins
+  const lastBonusThresholdRef = useRef(0); // Tracks 2000, 4000, 6000...
+  const isBonusTimeRef = useRef(false);
+  const bonusTimerRef = useRef(0);
+
   const frameId = useRef<number>(0);
   const isPressing = useRef<boolean>(false);
   const shake = useRef<number>(0);
@@ -130,41 +146,84 @@ export const LeapOrbitGame: React.FC = () => {
   const starsRef = useRef<Star[]>([]);
   const entityIdCounter = useRef(0);
 
-  // --- Supabase Logic ---
+  // --- Initialization & Persistance ---
 
-  // 1. 系统启动时检查连接
   useEffect(() => {
+    // Keep ref in sync with state
+    totalCoinsRef.current = totalCoins;
+  }, [totalCoins]);
+
+  // Fetch User Data from Cloud (Source of Truth)
+  const fetchUserData = async (userId: string) => {
+      try {
+          const { data, error } = await supabase
+            .from('high_scores')
+            .select('score, coins')
+            .eq('user_id', userId)
+            .single();
+          
+          if (data) {
+              // 覆盖本地数据，防止篡改本地存储作弊
+              setTotalCoins(data.coins || 0);
+              setHighScore(data.score || 0);
+              // 同步到本地备份，以备离线查看
+              localStorage.setItem('leap_orbit_coins', (data.coins || 0).toString());
+          } else if (error && error.code === 'PGRST116') {
+              // User has no record yet, start fresh but assume 0 coins
+              // Don't overwrite local storage if they played offline before login?
+              // Security choice: Authenticated state overrides Local state.
+              // To be nice, we could merge, but that opens up "offline farming" cheats.
+              // Let's stick to strict server authority for simplicity and security.
+              setTotalCoins(0);
+              setHighScore(0);
+          }
+      } catch (e) {
+          console.error("Failed to fetch user data", e);
+      }
+  };
+
+  useEffect(() => {
+    // 1. Initial Local Load (Guest Mode)
+    const localCoins = localStorage.getItem('leap_orbit_coins');
+    if (localCoins) {
+        const val = parseInt(localCoins, 10);
+        setTotalCoins(val);
+    }
+
+    // 2. Check Connection
     const checkConnection = async () => {
         try {
-            // 尝试读取一行数据来测试连接
             const { error } = await supabase.from('high_scores').select('count', { count: 'exact', head: true });
-            
             if (error) {
                 if (error.code === '42P01') {
-                     setSystemStatus({status: 'error', msg: '数据库表缺失 (42P01): 请运行SQL脚本创建表'});
-                } else if (error.code === 'PGRST301' || error.message.includes('JWT')) {
-                     setSystemStatus({status: 'error', msg: 'API Key 无效或权限不足'});
+                     setSystemStatus({status: 'error', msg: '数据库配置错误'});
                 } else {
-                     setSystemStatus({status: 'error', msg: `连接错误: ${error.message}`});
+                     setSystemStatus({status: 'error', msg: '离线模式'});
                 }
             } else {
                 setSystemStatus({status: 'ok', msg: '已连接云端'});
             }
         } catch (err: any) {
-            setSystemStatus({status: 'error', msg: `网络异常: ${err.message}`});
+            setSystemStatus({status: 'error', msg: '网络异常'});
         }
     };
     checkConnection();
 
-    // 2. Auth 监听 - 同时更新 Ref 以供游戏循环使用
+    // 3. Auth Listener
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       sessionRef.current = session;
+      if (session?.user) {
+          fetchUserData(session.user.id);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       sessionRef.current = session;
+      if (session?.user) {
+          fetchUserData(session.user.id);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -174,15 +233,12 @@ export const LeapOrbitGame: React.FC = () => {
     e.preventDefault();
     setAuthLoading(true);
     setAuthError('');
-
     try {
       if (authMode === 'signup') {
         const { error } = await supabase.auth.signUp({
           email: authEmail,
           password: authPassword,
-          options: {
-            data: { username: authUsername },
-          },
+          options: { data: { username: authUsername } },
         });
         if (error) throw error;
         alert("注册成功。请先验证邮箱再登录！");
@@ -204,6 +260,12 @@ export const LeapOrbitGame: React.FC = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    // Clear sensitive data on logout
+    setTotalCoins(0);
+    setHighScore(0);
+    // Optionally re-read local guest data
+    const localCoins = localStorage.getItem('leap_orbit_coins');
+    if (localCoins) setTotalCoins(parseInt(localCoins, 10));
   };
 
   const fetchLeaderboard = async () => {
@@ -215,12 +277,7 @@ export const LeapOrbitGame: React.FC = () => {
         .order('score', { ascending: false })
         .limit(10);
       
-      if (error) {
-         if (error.code === '42P01') {
-             throw new Error("数据库表 'high_scores' 不存在。");
-         }
-         throw error;
-      }
+      if (error && error.code !== '42P01') throw error;
       setLeaderboardData(data || []);
     } catch (err: any) {
       console.error("Error fetching leaderboard:", err);
@@ -230,56 +287,81 @@ export const LeapOrbitGame: React.FC = () => {
     }
   };
 
-  const uploadScore = async (score: number) => {
-    // 使用 Ref 获取最新的 Session，避免闭包问题
+  const syncData = async (score: number, currentRunCoins: number) => {
     const currentSession = sessionRef.current;
     
+    // 1. Guest Mode: Simple Local Storage
     if (!currentSession || !currentSession.user) {
-        setUploadStatus({status: 'idle', msg: '未登录，无法保存'});
+        // Use ref to get latest total (guest)
+        const currentTotal = totalCoinsRef.current;
+        const newTotal = currentTotal + currentRunCoins;
+        setTotalCoins(newTotal);
+        setRunCoins(0); 
+        localStorage.setItem('leap_orbit_coins', newTotal.toString());
+        setUploadStatus({status: 'idle', msg: '未登录，仅保存本地'});
         return;
     }
     
-    setUploadStatus({status: 'uploading', msg: '正在上传分数...'});
+    // 2. Auth Mode: Secure Server Sync
+    // Important: We ignore 'totalCoins' from frontend state for the calculation 
+    // to prevent local memory tampering. We fetch server state, add run coins, then save.
+    
+    setUploadStatus({status: 'uploading', msg: '正在同步数据...'});
 
     try {
-        // 先检查是否打破个人记录
-        const { data: existing, error: fetchError } = await supabase
+        // Step A: Fetch current server state (Truth)
+        const { data: serverData, error: fetchError } = await supabase
             .from('high_scores')
-            .select('score')
+            .select('score, coins')
             .eq('user_id', currentSession.user.id)
             .single();
-        
-        if (fetchError && fetchError.code !== 'PGRST116') { 
-           console.warn("Fetch error:", fetchError);
+
+        let serverCoins = 0;
+        let serverScore = 0;
+
+        if (serverData) {
+            serverCoins = serverData.coins || 0;
+            serverScore = serverData.score || 0;
+        } else if (fetchError && fetchError.code !== 'PGRST116') {
+             throw fetchError; // Real error, not just "not found"
         }
 
-        if (existing && existing.score >= score) {
-            setHighScore(existing.score); // 同步云端最高分到本地显示
-            const diff = existing.score - score + 1; // 还需要多少分才能破纪录
-            setUploadStatus({status: 'success', msg: `再接再厉！还差${diff}分就破记录了！`});
-            return; 
+        // Step B: Calculate New Truth
+        const newTotalCoins = serverCoins + currentRunCoins;
+        const newHighScore = Math.max(serverScore, score);
+
+        let msg = '数据已同步';
+        if (score > serverScore) {
+             msg = '新纪录已保存！';
+        } else if (serverScore > score) {
+             const diff = serverScore - score + 1;
+             msg = `再接再厉！还差 ${diff} 分就破记录了！`;
         }
 
-        const { error } = await supabase
+        // Step C: Upsert to Database
+        const { error: upsertError } = await supabase
         .from('high_scores')
         .upsert({
             user_id: currentSession.user.id,
             username: currentSession.user.user_metadata.username || currentSession.user.email?.split('@')[0] || 'Unknown',
-            score: score,
+            score: newHighScore,
+            coins: newTotalCoins // SAVE THE COINS
         }, { onConflict: 'user_id' });
         
-        if (error) {
-            console.error("Upload error:", error);
-            if (error.code === '42P01') {
-                setUploadStatus({status: 'error', msg: '错误：表不存在'});
-            } else {
-                setUploadStatus({status: 'error', msg: `上传失败: ${error.message}`});
-            }
+        if (upsertError) {
+             if (upsertError.code === '42P01') setUploadStatus({status: 'error', msg: '云端表缺失'});
+             else setUploadStatus({status: 'error', msg: '同步失败'});
         } else {
-            setUploadStatus({status: 'success', msg: '新纪录已保存！'});
+            // Step D: Update Frontend State to match Server (Success)
+            setHighScore(newHighScore);
+            setTotalCoins(newTotalCoins);
+            setRunCoins(0); // Clear visual run coins
+            localStorage.setItem('leap_orbit_coins', newTotalCoins.toString()); // Backup
+            setUploadStatus({status: 'success', msg: msg});
         }
     } catch (err: any) {
-        setUploadStatus({status: 'error', msg: `网络错误: ${err.message}`});
+        console.error(err);
+        setUploadStatus({status: 'error', msg: '网络错误'});
     }
   };
 
@@ -288,6 +370,51 @@ export const LeapOrbitGame: React.FC = () => {
       fetchLeaderboard();
   };
 
+  // --- Bonus & Coin Logic ---
+
+  const triggerBonusMode = () => {
+      isBonusTimeRef.current = true;
+      bonusTimerRef.current = BONUS_DURATION_FRAMES;
+      setIsBonusTimeUI(true);
+      
+      // Visual flair
+      shake.current = 10;
+      triggerHaptic([50, 50, 50, 50, 200]); // Bonus notification
+      createShockwave(0, 0, COLORS.coin);
+      
+      // Transform all valid entities to Coins
+      entitiesRef.current.forEach(e => {
+          if (e.isSafety) {
+              e.active = false; // Hide safety ring
+          } else if (e.active && e.type !== 'coin') {
+              e.type = 'coin';
+              e.color = COLORS.coin;
+              e.size = 12;
+              // Reset scale for pop-in effect
+              e.scale = 0; 
+              createExplosion(Math.cos(e.angle)*e.dist, Math.sin(e.angle)*e.dist, COLORS.coin, 5, 5);
+          }
+      });
+  };
+
+  const endBonusMode = () => {
+      if (!isBonusTimeRef.current) return;
+      
+      isBonusTimeRef.current = false;
+      setIsBonusTimeUI(false);
+      triggerHaptic(50);
+      
+      // Restore Scene
+      // 1. Remove remaining coins (or let them fade, but "restore" implies back to normal)
+      // We will remove them to prevent easy farming after time ends
+      entitiesRef.current = entitiesRef.current.filter(e => e.type !== 'coin');
+      
+      // 2. Respawn Safety Ring immediately
+      spawnSafetyRing(orbitRef.current);
+      
+      // 3. Reset internal filling logic to allow normal spawning again
+      isFillingInnerZoneRef.current = true;
+  };
 
   // --- Helper Functions ---
   const randomRange = (min: number, max: number) => Math.random() * (max - min) + min;
@@ -306,12 +433,9 @@ export const LeapOrbitGame: React.FC = () => {
   };
 
   const calculateCurrentTotalScore = () => {
-    // Determine the effective end time for score calculation
     const endTime = gameEndTimeRef.current || Date.now();
-    // Prevent negative duration if start time is somehow ahead
     const startTime = gameStartTimeRef.current || endTime;
     const survivalSeconds = Math.max(0, (endTime - startTime) / 1000);
-    
     const timeScore = Math.floor(survivalSeconds * 5);
     const orbitBonus = (orbitRef.current - 1) * 100;
     const multiplier = 1 + (orbitRef.current - 1) * 0.1;
@@ -347,29 +471,17 @@ export const LeapOrbitGame: React.FC = () => {
   };
   
   const createShockwave = (x: number, y: number, color: string) => {
-    shockwavesRef.current.push({
-        x, 
-        y,
-        radius: 10,
-        maxRadius: 400,
-        life: 1.0,
-        color
-    });
+    shockwavesRef.current.push({ x, y, radius: 10, maxRadius: 400, life: 1.0, color });
   };
 
   const spawnFloatingText = (x: number, y: number, text: string, color: string, size: number = 24) => {
-      floatingTextsRef.current.push({
-          x,
-          y,
-          text,
-          color,
-          life: 1.0,
-          vy: -1.9, 
-          size
-      });
+      floatingTextsRef.current.push({ x, y, text, color, life: 1.0, vy: -1.9, size });
   };
 
   const spawnSafetyRing = (orbitNum: number) => {
+      // Don't spawn if in bonus mode
+      if (isBonusTimeRef.current) return;
+
       entitiesRef.current = entitiesRef.current.filter(e => e && !e.isSafety);
       let count = 40;
       if (orbitNum > 3) {
@@ -398,6 +510,7 @@ export const LeapOrbitGame: React.FC = () => {
   };
 
   const spawnInnerAmbience = () => {
+    if (isBonusTimeRef.current) return; // No ambience during bonus
     if (entitiesRef.current.length > 350) return;
     const SAFE_ZONE_RADIUS = PLAYER_CONFIG.baseRadius + 300;
     const currentInnerCount = entitiesRef.current.filter(e => 
@@ -440,40 +553,57 @@ export const LeapOrbitGame: React.FC = () => {
     const maxEntities = 350; 
     if (entitiesRef.current.length > maxEntities) return;
     const currentOrbit = orbitRef.current;
+    
+    // Bonus Mode Spawning Logic
+    if (isBonusTimeRef.current) {
+        if (Math.random() > 0.15) return; // High spawn rate for coins
+        const spawnDist = randomRange(PLAYER_CONFIG.baseRadius + 50, MAX_ALTITUDE - 200);
+        entitiesRef.current.push({
+            id: entityIdCounter.current++,
+            type: 'coin',
+            angle: randomRange(0, Math.PI * 2),
+            dist: spawnDist,
+            active: true,
+            scale: 0,
+            maxScale: 1,
+            rotation: 0,
+            moveSpeed: randomRange(0.001, 0.003) * (Math.random() > 0.5 ? 1 : -1),
+            size: 12,
+            color: COLORS.coin,
+            isSafety: false
+        });
+        return;
+    }
+
+    // Normal Spawning Logic
     const spawnChance = Math.min(0.1, 0.0375 + (currentOrbit * 0.0025)); 
     if (Math.random() > spawnChance) return;
 
     const playerRadius = playerRef.current.radius;
     let type: EntityType = 'score';
     if (currentOrbit >= 3) {
-        if (Math.random() < 0.3) {
-            type = 'enemy';
-        } else {
+        if (Math.random() < 0.3) type = 'enemy';
+        else {
             if (Math.random() < 0.25) {
                 const rProp = Math.random();
                 if (rProp < 0.1) type = 'magnet';      
                 else if (rProp < 0.3) type = 'dash';   
                 else if (rProp < 0.6) type = 'shield'; 
                 else type = 'nuke';                    
-            } else {
-                type = 'score';
-            }
+            } else type = 'score';
         }
     } else {
         const difficultyFactor = actionScoreRef.current / 5000;
         const enemyChance = Math.min(0.01 + difficultyFactor, 0.1);
-        if (Math.random() < enemyChance) {
-            type = 'enemy';
-        } else {
+        if (Math.random() < enemyChance) type = 'enemy';
+        else {
             if (Math.random() < 0.15) { 
                 const rProp = Math.random();
                 if (rProp < 0.1) type = 'nuke';        
                 else if (rProp < 0.3) type = 'dash';   
                 else if (rProp < 0.5) type = 'magnet'; 
                 else type = 'shield';                  
-            } else {
-                type = 'score';
-            }
+            } else type = 'score';
         }
     }
 
@@ -485,10 +615,22 @@ export const LeapOrbitGame: React.FC = () => {
     const ENEMY_SAFE_DIST = PLAYER_CONFIG.baseRadius + 300;
     if (type === 'enemy' && spawnDist < ENEMY_SAFE_DIST) type = 'score';
 
-    const entity: Entity = {
+    // --- Fix: Safe Spawn Check for Enemies ---
+    const spawnAngle = randomRange(0, Math.PI * 2);
+    // Determine spawn position before creating entity
+    if (type === 'enemy') {
+        const ex = Math.cos(spawnAngle) * spawnDist;
+        const ey = Math.sin(spawnAngle) * spawnDist;
+        const dx = playerRef.current.x - ex;
+        const dy = playerRef.current.y - ey;
+        // Don't spawn enemy if it is too close to player (600px safe radius squared = 360000)
+        if ((dx * dx + dy * dy) < 360000) return; 
+    }
+
+    entitiesRef.current.push({
       id: entityIdCounter.current++,
       type,
-      angle: randomRange(0, Math.PI * 2),
+      angle: spawnAngle,
       dist: spawnDist,
       active: true,
       scale: 0,
@@ -498,8 +640,7 @@ export const LeapOrbitGame: React.FC = () => {
       size: type === 'score' ? 12 : (type === 'enemy' ? 18 : 16),
       color: COLORS[type],
       isSafety: false
-    };
-    entitiesRef.current.push(entity);
+    });
   };
 
   const initGame = () => {
@@ -523,8 +664,17 @@ export const LeapOrbitGame: React.FC = () => {
     floatingTextsRef.current = [];
     actionScoreRef.current = 0;
     orbitRef.current = 1; 
+    
+    // Reset Bonus State
+    coinsRef.current = 0;
+    setRunCoins(0);
+    lastBonusThresholdRef.current = 0;
+    isBonusTimeRef.current = false;
+    bonusTimerRef.current = 0;
+    setIsBonusTimeUI(false);
+
     gameStartTimeRef.current = Date.now();
-    gameEndTimeRef.current = null; // Reset end time
+    gameEndTimeRef.current = null;
     isFillingInnerZoneRef.current = true; 
     cameraRef.current = { x: 0, y: 0, zoom: 1 };
     setScoreDisplay(0);
@@ -533,8 +683,6 @@ export const LeapOrbitGame: React.FC = () => {
     setCenterWarning(false);
     isPressing.current = false;
     spawnSafetyRing(1);
-    
-    // 重置上传状态
     setUploadStatus({status: 'idle', msg: ''});
   };
 
@@ -546,19 +694,12 @@ export const LeapOrbitGame: React.FC = () => {
 
   const triggerDyingSequence = () => {
     if (gameStateRef.current === 'DYING' || gameStateRef.current === 'GAMEOVER') return;
-    
-    // Stop the survival timer exactly when death occurs
     gameEndTimeRef.current = Date.now();
-
     gameStateRef.current = 'DYING';
     setUiGameState('DYING');
     deathTimerRef.current = maxDeathTimerRef.current; 
     shake.current = 15; 
-    
-    // Death vibration pattern: Impact, crunch, failure, explosion
-    // Using complex short patterns to simulate texture on linear motors
     triggerHaptic([40, 30, 80, 30, 500]);
-
     const player = playerRef.current;
     createExplosion(player.x, player.y, COLORS.player, 40, 15);
     createShockwave(player.x, player.y, COLORS.player);
@@ -566,12 +707,8 @@ export const LeapOrbitGame: React.FC = () => {
 
   const handleGameOver = () => {
     gameStateRef.current = 'GAMEOVER';
-    
-    // Calculate final time based on the locked end time
     const finalTime = (gameEndTimeRef.current || Date.now()) - gameStartTimeRef.current;
     const finalTotalScore = calculateCurrentTotalScore();
-    
-    // Fix: Force sync the display score with the final calculated score
     setScoreDisplay(finalTotalScore);
 
     entitiesRef.current.forEach(e => {
@@ -591,16 +728,14 @@ export const LeapOrbitGame: React.FC = () => {
         actionScore: actionScoreRef.current,
         timeScore: Math.floor((finalTime / 1000) * 5),
         orbitBonus: (orbitRef.current - 1) * 100,
-        multiplier: 1 + (orbitRef.current - 1) * 0.1
+        multiplier: 1 + (orbitRef.current - 1) * 0.1,
+        coinsCollected: coinsRef.current
     });
     setHighScore(prev => Math.max(prev, finalTotalScore));
 
-    // CRITICAL: Use ref to check session state to avoid stale closure issue
-    if (sessionRef.current) {
-        uploadScore(finalTotalScore);
-    }
+    // Sync Data (Score + Coins)
+    syncData(finalTotalScore, coinsRef.current);
     
-    // 【延迟显示弹窗】 1秒后再显示UI
     setTimeout(() => {
         setUiGameState('GAMEOVER');
     }, 1000);
@@ -615,28 +750,13 @@ export const LeapOrbitGame: React.FC = () => {
         cameraRef.current.x += (player.x - cameraRef.current.x) * 0.03;
         cameraRef.current.y += (player.y - cameraRef.current.y) * 0.03;
         cameraRef.current.zoom += (3.8 - cameraRef.current.zoom) * 0.015;
-        
-        particlesRef.current.forEach((p, i) => { 
-            p.x += p.vx * 0.25; 
-            p.y += p.vy * 0.25; 
-            p.life -= 0.005;   
-            if (p.life <= 0) particlesRef.current.splice(i, 1); 
-        });
-        shockwavesRef.current.forEach((sw, i) => { 
-            sw.radius += 2.5; 
-            sw.life -= 0.006; 
-            if (sw.life <= 0) shockwavesRef.current.splice(i, 1); 
-        });
-        
+        particlesRef.current.forEach((p, i) => { p.x += p.vx * 0.25; p.y += p.vy * 0.25; p.life -= 0.005; if (p.life <= 0) particlesRef.current.splice(i, 1); });
+        shockwavesRef.current.forEach((sw, i) => { sw.radius += 2.5; sw.life -= 0.006; if (sw.life <= 0) shockwavesRef.current.splice(i, 1); });
         if (shake.current > 0) shake.current *= 0.98;
-
-        if (deathTimerRef.current <= 0) {
-            handleGameOver();
-        }
+        if (deathTimerRef.current <= 0) handleGameOver();
         return;
     }
 
-    // 【GAMEOVER缓冲期】允许粒子继续播放
     if (gameStateRef.current === 'GAMEOVER') {
         particlesRef.current.forEach((p, i) => { p.x += p.vx * 0.5; p.y += p.vy * 0.5; p.life -= 0.01; if (p.life <= 0) particlesRef.current.splice(i, 1); });
         shockwavesRef.current.forEach((sw, i) => { sw.radius += 2; sw.life -= 0.01; if (sw.life <= 0) shockwavesRef.current.splice(i, 1); });
@@ -646,9 +766,32 @@ export const LeapOrbitGame: React.FC = () => {
 
     const player = playerRef.current;
     
-    // Shield Expiration Logic
+    // --- Bonus Time Logic (FIXED) ---
+    // Calculate total score every frame to determine bonus trigger
+    const currentTotalScore = calculateCurrentTotalScore();
+    
+    if (isBonusTimeRef.current) {
+        bonusTimerRef.current--;
+        // Update UI every 10 frames roughly
+        if (bonusTimerRef.current % 10 === 0) setBonusTimeLeft(bonusTimerRef.current);
+        
+        if (bonusTimerRef.current <= 0) {
+            endBonusMode();
+        }
+    } else {
+        if (currentTotalScore !== scoreDisplay) setScoreDisplay(currentTotalScore);
+        
+        // Trigger check: when total score surpasses the next threshold (2000, 4000, etc.)
+        const nextThreshold = lastBonusThresholdRef.current + BONUS_SCORE_THRESHOLD;
+        if (currentTotalScore >= nextThreshold) {
+            lastBonusThresholdRef.current += BONUS_SCORE_THRESHOLD;
+            triggerBonusMode();
+        }
+    }
+
+    // Buffs
     if (player.shieldTime > 0) {
-        if (player.shieldTime === 1) triggerHaptic([40, 30, 15]); // Fading out warning
+        if (player.shieldTime === 1) triggerHaptic([40, 30, 15]); 
         player.shieldTime--;
     }
     if (player.magnetTime > 0) player.magnetTime--;
@@ -657,6 +800,7 @@ export const LeapOrbitGame: React.FC = () => {
     const hasMagnet = player.magnetTime > 0;
     const hasDash = player.dashTime > 0;
 
+    // Movement
     if (hasDash) {
         player.angle += PLAYER_CONFIG.dashRotSpeed;
         player.rVelocity *= 0.5; 
@@ -667,13 +811,14 @@ export const LeapOrbitGame: React.FC = () => {
     player.rVelocity *= player.drag; 
     player.radius += player.rVelocity;
 
+    // Orbit & Hub Logic
     const currentOrbitNum = Math.floor(player.angle / (Math.PI * 2)) + 1; 
     if (currentOrbitNum > orbitRef.current) {
         orbitRef.current = currentOrbitNum;
         setOrbitCountDisplay(currentOrbitNum);
         shake.current = 5;
         createShockwave(0, 0, '#00d2ff');
-        spawnSafetyRing(currentOrbitNum);
+        if (!isBonusTimeRef.current) spawnSafetyRing(currentOrbitNum);
     }
 
     if (player.radius < player.baseRadius) {
@@ -686,6 +831,11 @@ export const LeapOrbitGame: React.FC = () => {
 
     const DANGER_ZONE = player.baseRadius + 10;
     if (player.radius <= DANGER_ZONE) {
+        // If in bonus time and hit hub -> immediate end
+        if (isBonusTimeRef.current) {
+            endBonusMode();
+        }
+
         player.centerTime++;
         if (player.centerTime > CENTER_SAFE_LIMIT) {
             setCenterWarning(true);
@@ -722,7 +872,8 @@ export const LeapOrbitGame: React.FC = () => {
       if (e.type === 'enemy') e.rotation += 0.06;
 
       let magnetSucked = false;
-      if (e.type === 'score' && hasMagnet) {
+      // Magnet affects Score AND Coins
+      if ((e.type === 'score' || e.type === 'coin') && hasMagnet) {
         const dx = player.x - Math.cos(e.angle) * e.dist;
         const dy = player.y - Math.sin(e.angle) * e.dist;
         if ((dx * dx + dy * dy) < 100000) {
@@ -741,7 +892,15 @@ export const LeapOrbitGame: React.FC = () => {
       const isDirectHit = distSq < (player.size + e.size * e.scale)**2;
 
       if (isDirectHit || magnetSucked) {
-        if (e.type === 'score') {
+        if (e.type === 'coin') {
+             // Coin Collection
+             coinsRef.current += 1;
+             setRunCoins(coinsRef.current);
+             createExplosion(ex, ey, COLORS.coin, 8, 8); 
+             spawnFloatingText(ex, ey, "+1 金币", COLORS.coin, 16);
+             if (isDirectHit) { const boost = 15.0 + player.radius / 300; player.rVelocity = Math.max(player.rVelocity + boost, boost); }
+             entitiesRef.current.splice(i, 1);
+        } else if (e.type === 'score') {
           actionScoreRef.current += 10; createExplosion(ex, ey, 'white', 8, 8); spawnFloatingText(ex, ey, "+10", "#ffffff"); 
           if (hasMagnet) {
               player.magnetCount = (player.magnetCount || 0) + 1;
@@ -750,17 +909,17 @@ export const LeapOrbitGame: React.FC = () => {
           if (isDirectHit) { const boost = 15.0 + player.radius / 300; player.rVelocity = Math.max(player.rVelocity + boost, boost); }
           if (e.isSafety) e.active = false; else entitiesRef.current.splice(i, 1);
         } else if (e.type === 'shield') {
-          player.shieldTime = 400; triggerHaptic(8); // Ultra short click
+          player.shieldTime = 400; triggerHaptic(8); 
           createExplosion(ex, ey, COLORS.shield, 15); entitiesRef.current.splice(i, 1);
         } else if (e.type === 'magnet') {
-          player.magnetTime = 600; player.magnetCount = 0; triggerHaptic(8); // Ultra short click
+          player.magnetTime = 600; player.magnetCount = 0; triggerHaptic(8); 
           createExplosion(ex, ey, COLORS.magnet, 15); entitiesRef.current.splice(i, 1);
         } else if (e.type === 'dash') {
-          player.dashTime = 150; triggerHaptic(8); // Ultra short click
+          player.dashTime = 150; triggerHaptic(8); 
           createExplosion(ex, ey, COLORS.dash, 20); createShockwave(ex, ey, COLORS.dash); entitiesRef.current.splice(i, 1);
         } else if (e.type === 'nuke') {
           createExplosion(ex, ey, COLORS.nuke, 20); createShockwave(ex, ey, COLORS.nuke); shake.current = 20;
-          triggerHaptic([10, 10, 10, 10, 50, 20, 100]); // Shockwave rumble
+          triggerHaptic([10, 10, 10, 10, 50, 20, 100]); 
           for (let j = entitiesRef.current.length - 1; j >= 0; j--) {
               const t = entitiesRef.current[j];
               if (t && t.type === 'enemy') {
@@ -776,7 +935,7 @@ export const LeapOrbitGame: React.FC = () => {
         } else if (e.type === 'enemy' && isDirectHit) {
             if (hasShield || hasDash || player.rVelocity > 0) {
                 createExplosion(ex, ey, COLORS.enemy, 20); createShockwave(ex, ey, COLORS.enemy);
-                triggerHaptic([12, 8, 25]); // "Crunch" feeling
+                triggerHaptic([12, 8, 25]); 
                 spawnFloatingText(ex, ey, "+50", COLORS.enemy, 32); shake.current = 10; entitiesRef.current.splice(i, 1); actionScoreRef.current += 50; 
             } else triggerDyingSequence();
         }
@@ -788,8 +947,6 @@ export const LeapOrbitGame: React.FC = () => {
     floatingTextsRef.current.forEach((ft, i) => { ft.y += ft.vy; ft.life -= 0.025; if (ft.life <= 0) floatingTextsRef.current.splice(i, 1); });
     if (shake.current > 0) shake.current *= 0.9;
     
-    const total = calculateCurrentTotalScore();
-    if (total !== scoreDisplay) setScoreDisplay(total);
     setBuffs({ shield: player.shieldTime, magnet: player.magnetTime, dash: player.dashTime });
   };
 
@@ -845,9 +1002,8 @@ export const LeapOrbitGame: React.FC = () => {
         ctx.save(); ctx.translate(x, y);
         ctx.globalAlpha = (gameStateRef.current === 'DYING' ? (deathTimerRef.current/maxDeathTimerRef.current) : 1);
         
-        // 恢复发光效果
         ctx.shadowColor = e.color;
-        ctx.shadowBlur = e.type === 'score' ? 10 : 20;
+        ctx.shadowBlur = (e.type === 'score' || e.type === 'coin') ? 10 : 20;
 
         if (e.type === 'enemy') {
             ctx.rotate(e.rotation); ctx.fillStyle = e.color; ctx.beginPath();
@@ -855,8 +1011,13 @@ export const LeapOrbitGame: React.FC = () => {
             ctx.fill();
         } else {
             ctx.fillStyle = e.color; ctx.beginPath(); ctx.arc(0, 0, e.size*e.scale, 0, Math.PI*2); ctx.fill();
-            // 恢复道具的白色内芯
-            if (e.type !== 'score') { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, e.size*e.scale*0.4, 0, Math.PI*2); ctx.fill(); }
+            // 恢复道具的白色内芯 (coin 除外，金币是金色的)
+            if (e.type !== 'score' && e.type !== 'coin') { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, e.size*e.scale*0.4, 0, Math.PI*2); ctx.fill(); }
+            // Coin details
+            if (e.type === 'coin') {
+                ctx.fillStyle = '#fff9c4'; 
+                ctx.beginPath(); ctx.arc(0, 0, e.size*e.scale*0.4, 0, Math.PI*2); ctx.fill();
+            }
         }
         ctx.restore();
     });
@@ -872,30 +1033,15 @@ export const LeapOrbitGame: React.FC = () => {
         
         // 视觉特效：护盾
         if (player.shieldTime > 0) {
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(player.x, player.y, player.size + 5, 0, Math.PI * 2);
-            ctx.strokeStyle = COLORS.shield; // Green
-            ctx.lineWidth = 2;
-            ctx.shadowColor = COLORS.shield;
-            ctx.shadowBlur = 10;
-            ctx.globalAlpha = 0.6 + Math.sin(Date.now() * 0.01) * 0.2;
-            ctx.stroke();
-            ctx.restore();
+            ctx.save(); ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 5, 0, Math.PI * 2);
+            ctx.strokeStyle = COLORS.shield; ctx.lineWidth = 2; ctx.shadowColor = COLORS.shield; ctx.shadowBlur = 10;
+            ctx.globalAlpha = 0.6 + Math.sin(Date.now() * 0.01) * 0.2; ctx.stroke(); ctx.restore();
         }
-
         // 视觉特效：磁吸
         if (player.magnetTime > 0) {
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(player.x, player.y, player.size + 20, 0, Math.PI * 2);
-            ctx.strokeStyle = COLORS.magnet; // Purple
-            ctx.lineWidth = 1;
-            ctx.setLineDash([4, 4]);
-            ctx.lineDashOffset = -Date.now() * 0.02; // Animated dash
-            ctx.globalAlpha = 0.5;
-            ctx.stroke();
-            ctx.restore();
+            ctx.save(); ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 20, 0, Math.PI * 2);
+            ctx.strokeStyle = COLORS.magnet; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+            ctx.lineDashOffset = -Date.now() * 0.02; ctx.globalAlpha = 0.5; ctx.stroke(); ctx.restore();
         }
 
         ctx.beginPath(); ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2); ctx.fillStyle = player.dashTime > 0 ? '#fff' : player.color; ctx.fill();
@@ -946,8 +1092,8 @@ export const LeapOrbitGame: React.FC = () => {
 
   return (
     <div ref={containerRef} className="relative w-full h-full font-sans select-none overflow-hidden bg-black">
-        {/* Buff HUD */}
-        <div className={`absolute top-4 left-4 flex flex-col gap-3 pointer-events-none z-20 transition-opacity duration-1000 ${uiGameState !== 'PLAYING' ? 'opacity-0' : 'opacity-100'}`}>
+        {/* Buff HUD - MOVED DOWN to avoid coin overlap */}
+        <div className={`absolute top-14 left-4 flex flex-col gap-3 pointer-events-none z-20 transition-opacity duration-1000 ${uiGameState !== 'PLAYING' ? 'opacity-0' : 'opacity-100'}`}>
             <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.shield > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
                 <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500 shadow-[0_0_10px_#00ff00]">
                     <Shield size={16} className="text-green-400" />
@@ -968,6 +1114,14 @@ export const LeapOrbitGame: React.FC = () => {
             </div>
         </div>
 
+        {/* Coin HUD (Left Top) */}
+        <div className="absolute top-4 left-4 z-30 pointer-events-none">
+             <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-full px-3 py-1.5 border border-yellow-500/30 mb-2">
+                <Coins size={16} className="text-yellow-400" />
+                <span className="text-yellow-100 font-mono font-bold text-sm">{(totalCoins + runCoins).toLocaleString()}</span>
+             </div>
+        </div>
+
         {/* Orbit Counter HUD */}
         {(uiGameState === 'PLAYING') && (
              <div className="absolute top-4 right-4 flex items-center gap-2 pointer-events-none z-20">
@@ -983,6 +1137,14 @@ export const LeapOrbitGame: React.FC = () => {
             <div className="absolute top-10 left-1/2 -translate-x-1/2 pointer-events-none z-10 flex flex-col items-center animate-in fade-in duration-1000">
                 <span className="text-6xl font-black text-white tracking-tighter" style={{ textShadow: '0 0 20px rgba(0,210,255,0.6)'}}>{scoreDisplay.toLocaleString()}</span>
                 <span className="text-xs text-cyan-400/60 font-mono tracking-widest uppercase">Score</span>
+                
+                {/* Bonus Time Indicator */}
+                <div className={`mt-2 transition-all duration-300 ${isBonusTimeUI ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
+                    <div className="bg-yellow-500/20 border border-yellow-400/50 rounded-full px-4 py-1 flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-yellow-400 animate-pulse" />
+                        <span className="text-yellow-300 font-bold font-mono tracking-widest text-sm">BONUS TIME {(bonusTimeLeft/60).toFixed(1)}s</span>
+                    </div>
+                </div>
             </div>
         )}
 
@@ -990,6 +1152,13 @@ export const LeapOrbitGame: React.FC = () => {
         {uiGameState === 'START' && (
             <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/60 backdrop-blur-sm flex-col">
                 <div className="text-center p-8 border border-white/10 rounded-2xl bg-black/40 shadow-2xl max-w-sm mx-4 transform transition-all animate-in fade-in zoom-in duration-500 relative">
+                    
+                    {/* Coin Balance (Start Screen) */}
+                    <div className="absolute -top-12 left-0 flex items-center gap-2 bg-black/60 rounded-full px-3 py-1 border border-yellow-500/30">
+                        <Coins size={14} className="text-yellow-400" />
+                        <span className="text-yellow-100 font-mono font-bold text-xs">{totalCoins.toLocaleString()}</span>
+                    </div>
+
                     {/* Auth Buttons */}
                     <div className="absolute -top-12 right-0 flex gap-2">
                         {session ? (
@@ -1148,6 +1317,7 @@ export const LeapOrbitGame: React.FC = () => {
                             <span className="text-slate-400 flex items-center gap-2"><Target size={14} className="text-cyan-400"/> 游戏得分</span>
                             <span className="font-mono text-cyan-400">+{gameStats.actionScore}</span>
                         </div>
+                        {/* Restore Survival Score */}
                         <div className="flex justify-between items-center text-sm p-2 bg-white/5 rounded border border-white/5">
                             <span className="text-slate-400 flex items-center gap-2"><Clock size={14} className="text-green-400"/> 生存得分 ({gameStats.formattedDuration})</span>
                             <span className="font-mono text-green-400">+{gameStats.timeScore}</span>
@@ -1155,6 +1325,11 @@ export const LeapOrbitGame: React.FC = () => {
                         <div className="flex justify-between items-center text-sm p-2 bg-white/5 rounded border border-white/5">
                             <span className="text-slate-400 flex items-center gap-2"><Hash size={14} className="text-yellow-400"/> 圈数得分 ({gameStats.finalOrbit} 圈)</span>
                             <span className="font-mono text-yellow-400">+{gameStats.orbitBonus}</span>
+                        </div>
+                         {/* Coins moved here */}
+                        <div className="flex justify-between items-center text-sm p-2 bg-white/5 rounded border border-white/5">
+                            <span className="text-slate-400 flex items-center gap-2"><Coins size={14} className="text-yellow-400"/> 获得金币</span>
+                            <span className="font-mono text-yellow-400">+{gameStats.coinsCollected}</span>
                         </div>
                         <div className="flex justify-between items-center text-xs px-2 pt-2 text-slate-500 italic">
                             <span>全局倍率加成</span>
@@ -1184,7 +1359,7 @@ export const LeapOrbitGame: React.FC = () => {
                                 </div>
                                 {/* Retry Button */}
                                 {(uploadStatus.status === 'error' || uploadStatus.status === 'idle') && (
-                                    <button onClick={() => uploadScore(scoreDisplay)} className="text-xs bg-white/10 py-1.5 rounded hover:bg-white/20 transition-colors flex items-center justify-center gap-1 text-slate-300">
+                                    <button onClick={() => syncData(scoreDisplay, runCoins)} className="text-xs bg-white/10 py-1.5 rounded hover:bg-white/20 transition-colors flex items-center justify-center gap-1 text-slate-300">
                                         <UploadCloud size={12} /> 重试上传
                                     </button>
                                 )}

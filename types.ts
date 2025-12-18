@@ -1,5 +1,5 @@
 
-export type EntityType = 'score' | 'enemy' | 'shield' | 'magnet' | 'nuke' | 'dash';
+export type EntityType = 'score' | 'enemy' | 'shield' | 'magnet' | 'nuke' | 'dash' | 'coin';
 
 export interface Point {
   x: number;
