@@ -1,3 +1,4 @@
+
 export type EntityType = 'score' | 'enemy' | 'shield' | 'magnet' | 'nuke' | 'dash';
 
 export interface Point {
@@ -82,4 +83,10 @@ export interface GameState {
   isPlaying: boolean;
   shieldActive: boolean;
   magnetActive: boolean;
+}
+
+export interface LeaderboardEntry {
+  username: string;
+  score: number;
+  created_at: string;
 }

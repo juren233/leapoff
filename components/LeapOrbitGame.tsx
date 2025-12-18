@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Player, Entity, Particle, Shockwave, EntityType, FloatingText } from '../types';
-import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target } from 'lucide-react';
+import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, LeaderboardEntry } from '../types';
+import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v7.5.0-GlowRestored";
+const GAME_VERSION = "v7.6.0-Online";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -63,6 +64,19 @@ export const LeapOrbitGame: React.FC = () => {
     multiplier: 1.0
   });
 
+  // --- Supabase / Auth State ---
+  const [session, setSession] = useState<any>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authUsername, setAuthUsername] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+
   // --- Mutable Game State ---
   const gameStateRef = useRef<GameStateStatus>('START');
   const actionScoreRef = useRef(0); 
@@ -107,6 +121,113 @@ export const LeapOrbitGame: React.FC = () => {
   const floatingTextsRef = useRef<FloatingText[]>([]); 
   const starsRef = useRef<Star[]>([]);
   const entityIdCounter = useRef(0);
+
+  // --- Supabase Logic ---
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError('');
+
+    try {
+      if (authMode === 'signup') {
+        const { error } = await supabase.auth.signUp({
+          email: authEmail,
+          password: authPassword,
+          options: {
+            data: { username: authUsername },
+          },
+        });
+        if (error) throw error;
+        // Auto login after signup in Supabase usually works if email confirm is off, 
+        // or instructs user to check email.
+        alert("注册成功！请登录（如果开启了邮箱验证，请先验证邮箱）");
+        setAuthMode('login');
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+        setShowAuthModal(false);
+      }
+    } catch (err: any) {
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const fetchLeaderboard = async () => {
+    setLeaderboardLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('high_scores')
+        .select('username, score, created_at')
+        .order('score', { ascending: false })
+        .limit(10);
+      
+      if (error) throw error;
+      setLeaderboardData(data || []);
+    } catch (err) {
+      console.error("Error fetching leaderboard:", err);
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  };
+
+  const uploadScore = async (score: number) => {
+    if (!session || !session.user) return;
+    
+    // Check if current user has a higher score
+    try {
+        const { data: existing } = await supabase
+            .from('high_scores')
+            .select('score')
+            .eq('user_id', session.user.id)
+            .single();
+        
+        if (existing && existing.score >= score) {
+            return; // Don't overwrite with lower score
+        }
+
+        const { error } = await supabase
+        .from('high_scores')
+        .upsert({
+            user_id: session.user.id,
+            username: session.user.user_metadata.username || session.user.email?.split('@')[0] || 'Unknown',
+            score: score,
+        }, { onConflict: 'user_id' });
+        
+        if (error) console.error("Score upload failed", error);
+    } catch (err) {
+        console.error("Error checking/uploading score", err);
+    }
+  };
+
+  const openLeaderboard = () => {
+      setShowLeaderboard(true);
+      fetchLeaderboard();
+  };
+
 
   // --- Helper Functions ---
   const randomRange = (min: number, max: number) => Math.random() * (max - min) + min;
@@ -386,6 +507,11 @@ export const LeapOrbitGame: React.FC = () => {
         multiplier: 1 + (orbitRef.current - 1) * 0.1
     });
     setHighScore(prev => Math.max(prev, finalTotalScore));
+
+    // Upload score if logged in
+    if (session) {
+        uploadScore(finalTotalScore);
+    }
     
     // 【延迟显示弹窗】 1秒后再显示UI
     setTimeout(() => {
@@ -736,7 +862,24 @@ export const LeapOrbitGame: React.FC = () => {
         {/* Start Screen */}
         {uiGameState === 'START' && (
             <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/60 backdrop-blur-sm">
-                <div className="text-center p-8 border border-white/10 rounded-2xl bg-black/40 shadow-2xl max-w-sm mx-4 transform transition-all animate-in fade-in zoom-in duration-500">
+                <div className="text-center p-8 border border-white/10 rounded-2xl bg-black/40 shadow-2xl max-w-sm mx-4 transform transition-all animate-in fade-in zoom-in duration-500 relative">
+                    {/* Auth Buttons */}
+                    <div className="absolute -top-12 right-0 flex gap-2">
+                        {session ? (
+                           <div className="flex items-center gap-2 bg-black/60 rounded-full px-3 py-1 border border-cyan-500/30">
+                              <span className="text-xs text-cyan-400 font-mono">{session.user.user_metadata.username || '指挥官'}</span>
+                              <button onClick={handleLogout} className="text-xs text-red-400 hover:text-red-300 underline">退出</button>
+                           </div>
+                        ) : (
+                           <button onClick={() => setShowAuthModal(true)} className="flex items-center gap-1 bg-cyan-900/50 hover:bg-cyan-800/50 text-cyan-200 text-xs px-3 py-1.5 rounded-full border border-cyan-500/30 transition-all">
+                              <LogIn size={12} /> 登录 / 注册
+                           </button>
+                        )}
+                         <button onClick={openLeaderboard} className="flex items-center gap-1 bg-yellow-900/50 hover:bg-yellow-800/50 text-yellow-200 text-xs px-3 py-1.5 rounded-full border border-yellow-500/30 transition-all">
+                              <Award size={12} /> 排行榜
+                           </button>
+                    </div>
+
                     <h1 className="text-4xl font-black mb-1 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">跃迁轨道</h1>
                     <span className="text-xs text-slate-500 font-mono mb-8 block">{GAME_VERSION}</span>
                     <div className="space-y-4 mb-8 text-sm text-slate-300">
@@ -748,6 +891,100 @@ export const LeapOrbitGame: React.FC = () => {
                     </button>
                 </div>
             </div>
+        )}
+
+        {/* Auth Modal */}
+        {showAuthModal && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
+                <div className="w-full max-w-xs bg-neutral-900 border border-cyan-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(6,182,212,0.15)] relative">
+                    <button onClick={() => setShowAuthModal(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20}/></button>
+                    <h2 className="text-xl font-bold text-white mb-6 text-center">{authMode === 'login' ? '指挥官登录' : '新兵注册'}</h2>
+                    
+                    {authError && (
+                        <div className="mb-4 p-2 bg-red-500/20 border border-red-500/50 rounded text-xs text-red-200 flex items-center gap-2">
+                           <AlertTriangle size={12}/> {authError}
+                        </div>
+                    )}
+
+                    <form onSubmit={handleAuth} className="space-y-4">
+                        {authMode === 'signup' && (
+                             <div>
+                                <label className="block text-xs text-slate-400 mb-1">代号 (用户名)</label>
+                                <input type="text" required value={authUsername} onChange={e => setAuthUsername(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" placeholder="Striker-01" />
+                            </div>
+                        )}
+                        <div>
+                            <label className="block text-xs text-slate-400 mb-1">电子邮箱</label>
+                            <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" placeholder="pilot@orbit.com" />
+                        </div>
+                        <div>
+                            <label className="block text-xs text-slate-400 mb-1">密码</label>
+                            <input type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" placeholder="••••••••" />
+                        </div>
+                        <button type="submit" disabled={authLoading} className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2 mt-2">
+                            {authLoading ? <Loader2 size={16} className="animate-spin"/> : (authMode === 'login' ? '进入系统' : '注册账号')}
+                        </button>
+                    </form>
+                    
+                    <div className="mt-4 text-center text-xs text-slate-500">
+                        {authMode === 'login' ? '没有账号? ' : '已有账号? '}
+                        <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-cyan-400 hover:underline">
+                            {authMode === 'login' ? '立即注册' : '直接登录'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* Leaderboard Modal */}
+        {showLeaderboard && (
+             <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
+                <div className="w-full max-w-sm bg-neutral-900 border border-yellow-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(234,179,8,0.15)] relative h-[70vh] flex flex-col">
+                    <button onClick={() => setShowLeaderboard(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20}/></button>
+                    <div className="flex items-center justify-center gap-2 mb-6">
+                        <Trophy className="text-yellow-500" size={24} />
+                        <h2 className="text-xl font-bold text-white tracking-wider">精英榜单</h2>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                        {leaderboardLoading ? (
+                            <div className="flex flex-col items-center justify-center h-40 text-slate-500 gap-2">
+                                <Loader2 size={24} className="animate-spin"/>
+                                <span className="text-xs">数据同步中...</span>
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                <div className="grid grid-cols-12 text-xs text-slate-500 pb-2 border-b border-white/10 px-2">
+                                    <div className="col-span-2 text-center">排名</div>
+                                    <div className="col-span-6">指挥官</div>
+                                    <div className="col-span-4 text-right">分数</div>
+                                </div>
+                                {leaderboardData.map((entry, index) => {
+                                    let rankColor = "text-slate-400";
+                                    let rankBg = "bg-white/5";
+                                    if(index === 0) { rankColor = "text-yellow-400"; rankBg = "bg-yellow-500/10 border border-yellow-500/30"; }
+                                    else if(index === 1) { rankColor = "text-slate-300"; rankBg = "bg-slate-400/10 border border-slate-400/30"; }
+                                    else if(index === 2) { rankColor = "text-orange-400"; rankBg = "bg-orange-600/10 border border-orange-600/30"; }
+
+                                    return (
+                                        <div key={index} className={`grid grid-cols-12 items-center p-3 rounded-lg ${rankBg} text-sm`}>
+                                            <div className={`col-span-2 text-center font-bold ${rankColor}`}>#{index + 1}</div>
+                                            <div className="col-span-6 font-mono text-white truncate pr-2">{entry.username}</div>
+                                            <div className={`col-span-4 text-right font-mono font-bold ${rankColor}`}>{entry.score.toLocaleString()}</div>
+                                        </div>
+                                    )
+                                })}
+                                {leaderboardData.length === 0 && (
+                                    <div className="text-center py-8 text-slate-600 text-sm">暂无记录，虚位以待</div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                     <div className="mt-4 pt-4 border-t border-white/10 text-center text-xs text-slate-500">
+                        Top 10 Global Commanders
+                    </div>
+                </div>
+             </div>
         )}
 
         {/* Game Over Screen - 恢复原版设计 */}
@@ -784,6 +1021,11 @@ export const LeapOrbitGame: React.FC = () => {
                                 </span>
                              </div>
                         </div>
+                        {session && (
+                            <div className="text-center text-xs text-green-400/80 mt-2 bg-green-900/20 py-1 rounded">
+                                分数已自动上传至云端
+                            </div>
+                        )}
                     </div>
 
                     <div className="bg-yellow-500/10 p-3 rounded-lg border border-yellow-500/20 mb-6 flex items-center justify-center gap-2">
@@ -792,9 +1034,14 @@ export const LeapOrbitGame: React.FC = () => {
                         <span className="font-mono font-bold text-yellow-500">{highScore.toLocaleString()}</span>
                     </div>
 
-                    <button onClick={startGame} className="w-full py-3 bg-white hover:bg-slate-200 text-black font-bold rounded-full transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
-                        <RefreshCw size={18} /> 再次跃迁
-                    </button>
+                    <div className="flex gap-2">
+                        <button onClick={openLeaderboard} className="flex-1 py-3 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-full transition-all flex items-center justify-center gap-2 text-sm border border-white/10">
+                            <Award size={16} /> 排行榜
+                        </button>
+                        <button onClick={startGame} className="flex-[2] py-3 bg-white hover:bg-slate-200 text-black font-bold rounded-full transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
+                            <RefreshCw size={18} /> 再次跃迁
+                        </button>
+                    </div>
                 </div>
             </div>
         )}
