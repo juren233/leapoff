@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, LeaderboardEntry } from '../types';
-import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2 } from 'lucide-react';
+import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, Wifi, WifiOff, UploadCloud, Cloud } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v7.6.0-Online";
+const GAME_VERSION = "v7.8.0-SyncFix";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -64,8 +64,11 @@ export const LeapOrbitGame: React.FC = () => {
     multiplier: 1.0
   });
 
-  // --- Supabase / Auth State ---
+  // --- Supabase / Auth / System State ---
   const [session, setSession] = useState<any>(null);
+  // CRITICAL FIX: Use a ref to track session in the game loop closure
+  const sessionRef = useRef<any>(null);
+
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
@@ -76,6 +79,10 @@ export const LeapOrbitGame: React.FC = () => {
   const [authError, setAuthError] = useState('');
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  
+  // 新增：系统连接状态和上传状态
+  const [systemStatus, setSystemStatus] = useState<{status: 'checking' | 'ok' | 'error', msg: string}>({status: 'checking', msg: '正在连接服务器...'});
+  const [uploadStatus, setUploadStatus] = useState<{status: 'idle' | 'uploading' | 'success' | 'error', msg: string}>({status: 'idle', msg: ''});
 
   // --- Mutable Game State ---
   const gameStateRef = useRef<GameStateStatus>('START');
@@ -124,15 +131,39 @@ export const LeapOrbitGame: React.FC = () => {
 
   // --- Supabase Logic ---
 
+  // 1. 系统启动时检查连接
   useEffect(() => {
+    const checkConnection = async () => {
+        try {
+            // 尝试读取一行数据来测试连接
+            const { error } = await supabase.from('high_scores').select('count', { count: 'exact', head: true });
+            
+            if (error) {
+                if (error.code === '42P01') {
+                     setSystemStatus({status: 'error', msg: '数据库表缺失 (42P01): 请运行SQL脚本创建表'});
+                } else if (error.code === 'PGRST301' || error.message.includes('JWT')) {
+                     setSystemStatus({status: 'error', msg: 'API Key 无效或权限不足'});
+                } else {
+                     setSystemStatus({status: 'error', msg: `连接错误: ${error.message}`});
+                }
+            } else {
+                setSystemStatus({status: 'ok', msg: '已连接云端'});
+            }
+        } catch (err: any) {
+            setSystemStatus({status: 'error', msg: `网络异常: ${err.message}`});
+        }
+    };
+    checkConnection();
+
+    // 2. Auth 监听 - 同时更新 Ref 以供游戏循环使用
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      sessionRef.current = session;
     });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      sessionRef.current = session;
     });
 
     return () => subscription.unsubscribe();
@@ -153,10 +184,8 @@ export const LeapOrbitGame: React.FC = () => {
           },
         });
         if (error) throw error;
-        // Auto login after signup in Supabase usually works if email confirm is off, 
-        // or instructs user to check email.
-        alert("注册成功！请登录（如果开启了邮箱验证，请先验证邮箱）");
-        setAuthMode('login');
+        alert("注册成功！");
+        setAuthMode('login'); 
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email: authEmail,
@@ -185,41 +214,69 @@ export const LeapOrbitGame: React.FC = () => {
         .order('score', { ascending: false })
         .limit(10);
       
-      if (error) throw error;
+      if (error) {
+         if (error.code === '42P01') {
+             throw new Error("数据库表 'high_scores' 不存在。");
+         }
+         throw error;
+      }
       setLeaderboardData(data || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching leaderboard:", err);
+      setLeaderboardData([]); 
     } finally {
       setLeaderboardLoading(false);
     }
   };
 
   const uploadScore = async (score: number) => {
-    if (!session || !session.user) return;
+    // 使用 Ref 获取最新的 Session，避免闭包问题
+    const currentSession = sessionRef.current;
     
-    // Check if current user has a higher score
+    if (!currentSession || !currentSession.user) {
+        setUploadStatus({status: 'idle', msg: '未登录，无法保存'});
+        return;
+    }
+    
+    setUploadStatus({status: 'uploading', msg: '正在上传分数...'});
+
     try {
-        const { data: existing } = await supabase
+        // 先检查是否打破个人记录
+        const { data: existing, error: fetchError } = await supabase
             .from('high_scores')
             .select('score')
-            .eq('user_id', session.user.id)
+            .eq('user_id', currentSession.user.id)
             .single();
         
+        if (fetchError && fetchError.code !== 'PGRST116') { 
+           console.warn("Fetch error:", fetchError);
+        }
+
         if (existing && existing.score >= score) {
-            return; // Don't overwrite with lower score
+            setUploadStatus({status: 'success', msg: `未破纪录 (最高: ${existing.score})`});
+            return; 
         }
 
         const { error } = await supabase
         .from('high_scores')
         .upsert({
-            user_id: session.user.id,
-            username: session.user.user_metadata.username || session.user.email?.split('@')[0] || 'Unknown',
+            user_id: currentSession.user.id,
+            username: currentSession.user.user_metadata.username || currentSession.user.email?.split('@')[0] || 'Unknown',
             score: score,
         }, { onConflict: 'user_id' });
         
-        if (error) console.error("Score upload failed", error);
-    } catch (err) {
-        console.error("Error checking/uploading score", err);
+        if (error) {
+            console.error("Upload error:", error);
+            if (error.code === '42P01') {
+                setUploadStatus({status: 'error', msg: '错误：表不存在'});
+            } else {
+                setUploadStatus({status: 'error', msg: `上传失败: ${error.message}`});
+            }
+        } else {
+            setUploadStatus({status: 'success', msg: '新纪录已保存！'});
+        }
+    } catch (err: any) {
+        setUploadStatus({status: 'error', msg: `网络错误: ${err.message}`});
     }
   };
 
@@ -461,6 +518,9 @@ export const LeapOrbitGame: React.FC = () => {
     setCenterWarning(false);
     isPressing.current = false;
     spawnSafetyRing(1);
+    
+    // 重置上传状态
+    setUploadStatus({status: 'idle', msg: ''});
   };
 
   const startGame = () => {
@@ -508,8 +568,8 @@ export const LeapOrbitGame: React.FC = () => {
     });
     setHighScore(prev => Math.max(prev, finalTotalScore));
 
-    // Upload score if logged in
-    if (session) {
+    // CRITICAL: Use ref to check session state to avoid stale closure issue
+    if (sessionRef.current) {
         uploadScore(finalTotalScore);
     }
     
@@ -861,7 +921,7 @@ export const LeapOrbitGame: React.FC = () => {
 
         {/* Start Screen */}
         {uiGameState === 'START' && (
-            <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/60 backdrop-blur-sm">
+            <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/60 backdrop-blur-sm flex-col">
                 <div className="text-center p-8 border border-white/10 rounded-2xl bg-black/40 shadow-2xl max-w-sm mx-4 transform transition-all animate-in fade-in zoom-in duration-500 relative">
                     {/* Auth Buttons */}
                     <div className="absolute -top-12 right-0 flex gap-2">
@@ -875,9 +935,7 @@ export const LeapOrbitGame: React.FC = () => {
                               <LogIn size={12} /> 登录 / 注册
                            </button>
                         )}
-                         <button onClick={openLeaderboard} className="flex items-center gap-1 bg-yellow-900/50 hover:bg-yellow-800/50 text-yellow-200 text-xs px-3 py-1.5 rounded-full border border-yellow-500/30 transition-all">
-                              <Award size={12} /> 排行榜
-                           </button>
+                        {/* Removed Leaderboard button from top right */}
                     </div>
 
                     <h1 className="text-4xl font-black mb-1 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">跃迁轨道</h1>
@@ -889,6 +947,23 @@ export const LeapOrbitGame: React.FC = () => {
                     <button onClick={startGame} className="group relative px-10 py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-full transition-all hover:scale-105 active:scale-95 shadow-[0_0_25px_rgba(8,145,178,0.6)] flex items-center gap-2 mx-auto">
                         <Play size={20} className="fill-current" /> 开启跃迁
                     </button>
+                    
+                    {/* New Leaderboard Button Location */}
+                    <button onClick={openLeaderboard} className="mt-4 flex items-center gap-1 bg-yellow-900/20 hover:bg-yellow-800/30 text-yellow-200 text-xs px-4 py-2 rounded-full border border-yellow-500/30 transition-all mx-auto">
+                        <Award size={14} /> 排行榜
+                    </button>
+                </div>
+                
+                {/* System Status Bar */}
+                <div className={`mt-8 px-4 py-2 rounded-full text-xs font-mono flex items-center gap-2 border transition-colors ${
+                    systemStatus.status === 'ok' ? 'bg-green-900/20 border-green-500/30 text-green-400' : 
+                    systemStatus.status === 'error' ? 'bg-red-900/20 border-red-500/30 text-red-400' : 
+                    'bg-slate-900/20 border-slate-500/30 text-slate-400'
+                }`}>
+                    {systemStatus.status === 'checking' && <Loader2 size={12} className="animate-spin" />}
+                    {systemStatus.status === 'ok' && <Cloud size={12} />}
+                    {systemStatus.status === 'error' && <WifiOff size={12} />}
+                    {systemStatus.msg}
                 </div>
             </div>
         )}
@@ -898,7 +973,8 @@ export const LeapOrbitGame: React.FC = () => {
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
                 <div className="w-full max-w-xs bg-neutral-900 border border-cyan-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(6,182,212,0.15)] relative">
                     <button onClick={() => setShowAuthModal(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20}/></button>
-                    <h2 className="text-xl font-bold text-white mb-6 text-center">{authMode === 'login' ? '指挥官登录' : '新兵注册'}</h2>
+                    {/* Updated Title */}
+                    <h2 className="text-xl font-bold text-white mb-6 text-center">{authMode === 'login' ? '登录' : '注册'}</h2>
                     
                     {authError && (
                         <div className="mb-4 p-2 bg-red-500/20 border border-red-500/50 rounded text-xs text-red-200 flex items-center gap-2">
@@ -909,20 +985,20 @@ export const LeapOrbitGame: React.FC = () => {
                     <form onSubmit={handleAuth} className="space-y-4">
                         {authMode === 'signup' && (
                              <div>
-                                <label className="block text-xs text-slate-400 mb-1">代号 (用户名)</label>
-                                <input type="text" required value={authUsername} onChange={e => setAuthUsername(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" placeholder="Striker-01" />
+                                <label className="block text-xs text-slate-400 mb-1">用户名</label>
+                                <input type="text" required value={authUsername} onChange={e => setAuthUsername(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" />
                             </div>
                         )}
                         <div>
                             <label className="block text-xs text-slate-400 mb-1">电子邮箱</label>
-                            <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" placeholder="pilot@orbit.com" />
+                            <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" />
                         </div>
                         <div>
                             <label className="block text-xs text-slate-400 mb-1">密码</label>
-                            <input type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" placeholder="••••••••" />
+                            <input type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" />
                         </div>
                         <button type="submit" disabled={authLoading} className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2 mt-2">
-                            {authLoading ? <Loader2 size={16} className="animate-spin"/> : (authMode === 'login' ? '进入系统' : '注册账号')}
+                            {authLoading ? <Loader2 size={16} className="animate-spin"/> : (authMode === 'login' ? '登录游戏' : '注册账号')}
                         </button>
                     </form>
                     
@@ -943,7 +1019,8 @@ export const LeapOrbitGame: React.FC = () => {
                     <button onClick={() => setShowLeaderboard(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20}/></button>
                     <div className="flex items-center justify-center gap-2 mb-6">
                         <Trophy className="text-yellow-500" size={24} />
-                        <h2 className="text-xl font-bold text-white tracking-wider">精英榜单</h2>
+                        {/* Updated Title */}
+                        <h2 className="text-xl font-bold text-white tracking-wider">排行榜</h2>
                     </div>
 
                     <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
@@ -956,7 +1033,8 @@ export const LeapOrbitGame: React.FC = () => {
                             <div className="space-y-2">
                                 <div className="grid grid-cols-12 text-xs text-slate-500 pb-2 border-b border-white/10 px-2">
                                     <div className="col-span-2 text-center">排名</div>
-                                    <div className="col-span-6">指挥官</div>
+                                    {/* Updated Header */}
+                                    <div className="col-span-6">玩家</div>
                                     <div className="col-span-4 text-right">分数</div>
                                 </div>
                                 {leaderboardData.map((entry, index) => {
@@ -981,13 +1059,14 @@ export const LeapOrbitGame: React.FC = () => {
                         )}
                     </div>
                      <div className="mt-4 pt-4 border-t border-white/10 text-center text-xs text-slate-500">
-                        Top 10 Global Commanders
+                        {/* Updated Footer */}
+                        全球前10名
                     </div>
                 </div>
              </div>
         )}
 
-        {/* Game Over Screen - 恢复原版设计 */}
+        {/* Game Over Screen */}
         {uiGameState === 'GAMEOVER' && (
             <div className="absolute inset-0 flex items-center justify-center z-30 bg-red-900/20 backdrop-blur-sm">
                 <div className="text-center p-6 border border-red-500/30 rounded-2xl bg-black/90 shadow-2xl w-80 mx-4 transform transition-all animate-in fade-in zoom-in duration-300">
@@ -1021,10 +1100,31 @@ export const LeapOrbitGame: React.FC = () => {
                                 </span>
                              </div>
                         </div>
-                        {session && (
-                            <div className="text-center text-xs text-green-400/80 mt-2 bg-green-900/20 py-1 rounded">
-                                分数已自动上传至云端
+
+                        {/* Upload Status Feedback with Retry Button */}
+                        {session ? (
+                            <div className="flex flex-col gap-2 mt-3">
+                                <div className={`text-center text-xs py-2 rounded flex items-center justify-center gap-2 transition-colors ${
+                                    uploadStatus.status === 'success' ? 'bg-green-900/30 text-green-400' :
+                                    uploadStatus.status === 'error' ? 'bg-red-900/30 text-red-400' :
+                                    'bg-blue-900/30 text-blue-400'
+                                }`}>
+                                    {(uploadStatus.status === 'uploading' || uploadStatus.status === 'idle') && <Loader2 size={12} className="animate-spin" />}
+                                    {uploadStatus.status === 'success' && <CheckCircle size={12} />}
+                                    {uploadStatus.status === 'error' && <AlertTriangle size={12} />}
+                                    <span>{uploadStatus.msg || (uploadStatus.status === 'idle' ? '准备上传...' : '')}</span>
+                                </div>
+                                {/* Retry Button */}
+                                {(uploadStatus.status === 'error' || uploadStatus.status === 'idle') && (
+                                    <button onClick={() => uploadScore(scoreDisplay)} className="text-xs bg-white/10 py-1.5 rounded hover:bg-white/20 transition-colors flex items-center justify-center gap-1 text-slate-300">
+                                        <UploadCloud size={12} /> 重试上传
+                                    </button>
+                                )}
                             </div>
+                        ) : (
+                            <button onClick={() => setShowAuthModal(true)} className="w-full text-center text-xs text-cyan-400/80 mt-2 bg-cyan-900/20 py-2 rounded hover:bg-cyan-900/40 transition-colors border border-cyan-500/20">
+                                未登录：点击登录以保存分数
+                            </button>
                         )}
                     </div>
 
