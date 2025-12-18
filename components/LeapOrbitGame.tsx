@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType, FloatingText } from '../types';
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target } from 'lucide-react';
 
-const GAME_VERSION = "v7.1.3-EffectsRestored";
+const GAME_VERSION = "v7.5.0-GlowRestored";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -40,6 +40,8 @@ interface Star {
   opacity: number;
 }
 
+type GameStateStatus = 'START' | 'PLAYING' | 'DYING' | 'GAMEOVER';
+
 export const LeapOrbitGame: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -47,7 +49,7 @@ export const LeapOrbitGame: React.FC = () => {
   // --- React State for UI ---
   const [scoreDisplay, setScoreDisplay] = useState(0);
   const [highScore, setHighScore] = useState(0);
-  const [uiGameState, setUiGameState] = useState<'START' | 'PLAYING' | 'GAMEOVER'>('START');
+  const [uiGameState, setUiGameState] = useState<GameStateStatus>('START');
   const [buffs, setBuffs] = useState({ shield: 0, magnet: 0, dash: 0 });
   const [centerWarning, setCenterWarning] = useState(false);
   const [orbitCountDisplay, setOrbitCountDisplay] = useState(1);
@@ -62,11 +64,13 @@ export const LeapOrbitGame: React.FC = () => {
   });
 
   // --- Mutable Game State ---
-  const gameStateRef = useRef<'START' | 'PLAYING' | 'GAMEOVER'>('START');
+  const gameStateRef = useRef<GameStateStatus>('START');
   const actionScoreRef = useRef(0); 
   const orbitRef = useRef(1);      
   const gameStartTimeRef = useRef(0);
   const isFillingInnerZoneRef = useRef(true); 
+  const deathTimerRef = useRef(0);
+  const maxDeathTimerRef = useRef(180); // 3秒慢动作特写
   
   const frameId = useRef<number>(0);
   const isPressing = useRef<boolean>(false);
@@ -115,7 +119,7 @@ export const LeapOrbitGame: React.FC = () => {
   };
 
   const calculateCurrentTotalScore = () => {
-    const survivalSeconds = (Date.now() - gameStartTimeRef.current) / 1000;
+    const survivalSeconds = (Date.now() - (gameStartTimeRef.current || Date.now())) / 1000;
     const timeScore = Math.floor(survivalSeconds * 5);
     const orbitBonus = (orbitRef.current - 1) * 100;
     const multiplier = 1 + (orbitRef.current - 1) * 0.1;
@@ -207,12 +211,10 @@ export const LeapOrbitGame: React.FC = () => {
     const currentInnerCount = entitiesRef.current.filter(e => 
         e && e.type === 'score' && e.dist <= SAFE_ZONE_RADIUS && e.active
     ).length;
-    const UPPER_LIMIT = 50; 
-    const LOWER_LIMIT = 20; 
     if (isFillingInnerZoneRef.current) {
-        if (currentInnerCount >= UPPER_LIMIT) isFillingInnerZoneRef.current = false;
+        if (currentInnerCount >= 50) isFillingInnerZoneRef.current = false;
     } else {
-        if (currentInnerCount <= LOWER_LIMIT) isFillingInnerZoneRef.current = true;
+        if (currentInnerCount <= 20) isFillingInnerZoneRef.current = true;
     }
     if (!isFillingInnerZoneRef.current) return;
     if (Math.random() > 0.15) return;
@@ -223,8 +225,6 @@ export const LeapOrbitGame: React.FC = () => {
         if (r < 0.33) type = 'shield';
         else if (r < 0.66) type = 'magnet';
         else type = 'dash';
-        
-        // 【禁区强化】在内圈生成的环境杂物中，禁止磁铁 (Double check)
         if (type === 'magnet') type = 'score';
     }
     const entity: Entity = {
@@ -289,25 +289,20 @@ export const LeapOrbitGame: React.FC = () => {
     const ceilingSpawn = Math.min(playerRadius + 600, MAX_ALTITUDE - 200);
     if (baseSpawn > MAX_ALTITUDE) return;
     const spawnDist = randomRange(baseSpawn, ceilingSpawn);
-    
-    // 【强化禁区】磁铁不能生成在中心附近，防止吸走保命圈 (范围扩大到600)
     if (type === 'magnet' && spawnDist < PLAYER_CONFIG.baseRadius + 600) type = 'score';
-    
     const ENEMY_SAFE_DIST = PLAYER_CONFIG.baseRadius + 300;
     if (type === 'enemy' && spawnDist < ENEMY_SAFE_DIST) type = 'score';
 
-    const spawnAngle = randomRange(0, Math.PI * 2);
-    const moveSpeed = randomRange(0.0012, 0.0031) * (Math.random() > 0.5 ? 1 : -1);
     const entity: Entity = {
       id: entityIdCounter.current++,
       type,
-      angle: spawnAngle,
+      angle: randomRange(0, Math.PI * 2),
       dist: spawnDist,
       active: true,
       scale: 0,
       maxScale: 1,
       rotation: 0,
-      moveSpeed: moveSpeed,
+      moveSpeed: randomRange(0.0012, 0.0031) * (Math.random() > 0.5 ? 1 : -1),
       size: type === 'score' ? 12 : (type === 'enemy' ? 18 : 16),
       color: COLORS[type],
       isSafety: false
@@ -335,13 +330,10 @@ export const LeapOrbitGame: React.FC = () => {
     shockwavesRef.current = [];
     floatingTextsRef.current = [];
     actionScoreRef.current = 0;
-    
     orbitRef.current = 1; 
     gameStartTimeRef.current = Date.now();
     isFillingInnerZoneRef.current = true; 
-    
     cameraRef.current = { x: 0, y: 0, zoom: 1 };
-
     setScoreDisplay(0);
     setOrbitCountDisplay(1);
     setBuffs({ shield: 0, magnet: 0, dash: 0 });
@@ -354,6 +346,19 @@ export const LeapOrbitGame: React.FC = () => {
     initGame();
     gameStateRef.current = 'PLAYING';
     setUiGameState('PLAYING');
+  };
+
+  const triggerDyingSequence = () => {
+    if (gameStateRef.current === 'DYING' || gameStateRef.current === 'GAMEOVER') return;
+    
+    gameStateRef.current = 'DYING';
+    setUiGameState('DYING');
+    deathTimerRef.current = maxDeathTimerRef.current; 
+    shake.current = 15; 
+    
+    const player = playerRef.current;
+    createExplosion(player.x, player.y, COLORS.player, 40, 15);
+    createShockwave(player.x, player.y, COLORS.player);
   };
 
   const handleGameOver = () => {
@@ -381,13 +386,52 @@ export const LeapOrbitGame: React.FC = () => {
         multiplier: 1 + (orbitRef.current - 1) * 0.1
     });
     setHighScore(prev => Math.max(prev, finalTotalScore));
-    setUiGameState('GAMEOVER');
+    
+    // 【延迟显示弹窗】 1秒后再显示UI
+    setTimeout(() => {
+        setUiGameState('GAMEOVER');
+    }, 1000);
   };
 
   const update = () => {
-    if (gameStateRef.current !== 'PLAYING') return;
+    if (gameStateRef.current === 'START') return;
+
+    if (gameStateRef.current === 'DYING') {
+        deathTimerRef.current--;
+        const player = playerRef.current;
+        cameraRef.current.x += (player.x - cameraRef.current.x) * 0.03;
+        cameraRef.current.y += (player.y - cameraRef.current.y) * 0.03;
+        cameraRef.current.zoom += (3.8 - cameraRef.current.zoom) * 0.015;
+        
+        particlesRef.current.forEach((p, i) => { 
+            p.x += p.vx * 0.25; 
+            p.y += p.vy * 0.25; 
+            p.life -= 0.005;   
+            if (p.life <= 0) particlesRef.current.splice(i, 1); 
+        });
+        shockwavesRef.current.forEach((sw, i) => { 
+            sw.radius += 2.5; 
+            sw.life -= 0.006; 
+            if (sw.life <= 0) shockwavesRef.current.splice(i, 1); 
+        });
+        
+        if (shake.current > 0) shake.current *= 0.98;
+
+        if (deathTimerRef.current <= 0) {
+            handleGameOver();
+        }
+        return;
+    }
+
+    // 【GAMEOVER缓冲期】允许粒子继续播放
+    if (gameStateRef.current === 'GAMEOVER') {
+        particlesRef.current.forEach((p, i) => { p.x += p.vx * 0.5; p.y += p.vy * 0.5; p.life -= 0.01; if (p.life <= 0) particlesRef.current.splice(i, 1); });
+        shockwavesRef.current.forEach((sw, i) => { sw.radius += 2; sw.life -= 0.01; if (sw.life <= 0) shockwavesRef.current.splice(i, 1); });
+        floatingTextsRef.current.forEach((ft, i) => { ft.y += ft.vy * 0.5; ft.life -= 0.01; if (ft.life <= 0) floatingTextsRef.current.splice(i, 1); });
+        return;
+    }
+
     const player = playerRef.current;
-    
     if (player.shieldTime > 0) player.shieldTime--;
     if (player.magnetTime > 0) player.magnetTime--;
     if (player.dashTime > 0) player.dashTime--;
@@ -419,9 +463,7 @@ export const LeapOrbitGame: React.FC = () => {
       if (player.rVelocity < -1) {
         player.rVelocity = -player.rVelocity * 0.4; 
         shake.current = Math.min(Math.abs(player.rVelocity) * 2, 5);
-      } else {
-        player.rVelocity = 0;
-      }
+      } else player.rVelocity = 0;
     }
 
     const DANGER_ZONE = player.baseRadius + 10;
@@ -430,18 +472,10 @@ export const LeapOrbitGame: React.FC = () => {
         if (player.centerTime > CENTER_SAFE_LIMIT) {
             setCenterWarning(true);
             shake.current = (player.centerTime - CENTER_SAFE_LIMIT) / 20; 
-            if (player.centerTime > CENTER_DEATH_LIMIT) {
-                createExplosion(player.x, player.y, COLORS.enemy, 30, 20); 
-                createShockwave(0, 0, COLORS.enemy);
-                shake.current = 40;
-                handleGameOver();
-            }
+            if (player.centerTime > CENTER_DEATH_LIMIT) triggerDyingSequence();
         }
     } else {
-        if (player.centerTime > 0) {
-             player.centerTime = 0;
-             setCenterWarning(false);
-        }
+        if (player.centerTime > 0) { player.centerTime = 0; setCenterWarning(false); }
     }
     
     player.x = Math.cos(player.angle) * player.radius;
@@ -462,10 +496,8 @@ export const LeapOrbitGame: React.FC = () => {
     for (let i = entitiesRef.current.length - 1; i >= 0; i--) {
       const e = entitiesRef.current[i];
       if (!e || !e.active) continue;
-      if (e.isSafety) {
-          if (orbitRef.current >= 2) {
-              e.dist = (e.baseDist || e.dist) + Math.sin(now * 0.002 + (e.wobblePhase || 0)) * Math.min(50, 15 + (orbitRef.current - 2) * 5);
-          }
+      if (e.isSafety && orbitRef.current >= 2) {
+          e.dist = (e.baseDist || e.dist) + Math.sin(now * 0.002 + (e.wobblePhase || 0)) * Math.min(50, 15 + (orbitRef.current - 2) * 5);
       }
       if (e.scale < e.maxScale) e.scale += 0.125; 
       e.angle += e.moveSpeed;
@@ -492,23 +524,13 @@ export const LeapOrbitGame: React.FC = () => {
 
       if (isDirectHit || magnetSucked) {
         if (e.type === 'score') {
-          actionScoreRef.current += 10; 
-          // 【特效恢复】：确保保留吃分特效
-          createExplosion(ex, ey, 'white', 8, 8);
-          spawnFloatingText(ex, ey, "+10", "#ffffff"); 
+          actionScoreRef.current += 10; createExplosion(ex, ey, 'white', 8, 8); spawnFloatingText(ex, ey, "+10", "#ffffff"); 
           if (hasMagnet) {
               player.magnetCount = (player.magnetCount || 0) + 1;
-              if (player.magnetCount >= 15) {
-                  player.magnetTime = 0;
-                  setBuffs(prev => ({ ...prev, magnet: 0 }));
-              }
+              if (player.magnetCount >= 15) { player.magnetTime = 0; setBuffs(prev => ({ ...prev, magnet: 0 })); }
           }
-          if (isDirectHit) {
-              const boost = 15.0 + player.radius / 300;
-              player.rVelocity = Math.max(player.rVelocity + boost, boost);
-          }
-          if (e.isSafety) e.active = false;
-          else entitiesRef.current.splice(i, 1);
+          if (isDirectHit) { const boost = 15.0 + player.radius / 300; player.rVelocity = Math.max(player.rVelocity + boost, boost); }
+          if (e.isSafety) e.active = false; else entitiesRef.current.splice(i, 1);
         } else if (e.type === 'shield') {
           player.shieldTime = 400; createExplosion(ex, ey, COLORS.shield, 15); entitiesRef.current.splice(i, 1);
         } else if (e.type === 'magnet') {
@@ -524,27 +546,16 @@ export const LeapOrbitGame: React.FC = () => {
                   if (((ex - tx)**2 + (ey - ty)**2) < 500**2) {
                       createExplosion(tx, ty, COLORS.enemy, 15); createShockwave(tx, ty, COLORS.enemy);
                       spawnFloatingText(tx, ty, "+50", COLORS.enemy, 32);
-                      entitiesRef.current.splice(j, 1);
-                      actionScoreRef.current += 50; 
-                      if (j < i) i--;
+                      entitiesRef.current.splice(j, 1); actionScoreRef.current += 50; if (j < i) i--;
                   }
               }
           }
           entitiesRef.current.splice(i, 1);
         } else if (e.type === 'enemy' && isDirectHit) {
-            // 【核心修复】：只要有向外的速度（rVelocity > 0），即视为攻击状态，可爆破敌人
             if (hasShield || hasDash || player.rVelocity > 0) {
-                createExplosion(ex, ey, COLORS.enemy, 20); 
-                createShockwave(ex, ey, COLORS.enemy);
-                spawnFloatingText(ex, ey, "+50", COLORS.enemy, 32);
-                shake.current = 10; 
-                entitiesRef.current.splice(i, 1);
-                actionScoreRef.current += 50; 
-            } else {
-                // 仅在轨道方向(速度接近0)或向内掉落(速度<0)时死亡
-                createExplosion(player.x, player.y, COLORS.player, 30); 
-                handleGameOver();
-            }
+                createExplosion(ex, ey, COLORS.enemy, 20); createShockwave(ex, ey, COLORS.enemy);
+                spawnFloatingText(ex, ey, "+50", COLORS.enemy, 32); shake.current = 10; entitiesRef.current.splice(i, 1); actionScoreRef.current += 50; 
+            } else triggerDyingSequence();
         }
       }
     }
@@ -566,20 +577,30 @@ export const LeapOrbitGame: React.FC = () => {
     const player = playerRef.current; const cam = cameraRef.current;
 
     ctx.fillStyle = COLORS.background; ctx.fillRect(0, 0, width, height);
+    
+    if (gameStateRef.current === 'DYING') {
+        const prog = 1 - deathTimerRef.current / maxDeathTimerRef.current;
+        const pulse = 0.5 + Math.sin(Date.now() * 0.005) * 0.2;
+        const gradient = ctx.createRadialGradient(cx, cy, 100 * cam.zoom, cx, cy, Math.max(width, height) * 0.9);
+        gradient.addColorStop(0, 'rgba(0,0,0,0)');
+        gradient.addColorStop(1, `rgba(180, 0, 0, ${prog * pulse * 0.5})`);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, width, height);
+    }
+
     ctx.save();
     ctx.translate(cx, cy);
     if (shake.current > 0) ctx.translate((Math.random() - 0.5) * shake.current, (Math.random() - 0.5) * shake.current);
     ctx.scale(cam.zoom, cam.zoom); ctx.translate(-cam.x, -cam.y);
 
-    // 星星
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); 
     starsRef.current.forEach(star => {
         let px = (star.x - cam.x * 0.2 * cam.zoom) % width; let py = (star.y - cam.y * 0.2 * cam.zoom) % height;
-        ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity})`; ctx.beginPath(); ctx.arc(px < 0 ? px + width : px, py < 0 ? py + height : py, star.size * (0.5 + cam.zoom * 0.5), 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity * (gameStateRef.current === 'DYING' ? (deathTimerRef.current/maxDeathTimerRef.current) : 1)})`; 
+        ctx.beginPath(); ctx.arc(px < 0 ? px + width : px, py < 0 ? py + height : py, star.size * (0.5 + cam.zoom * 0.5), 0, Math.PI * 2); ctx.fill();
     });
     ctx.restore();
 
-    // 网格
     ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 1 / cam.zoom; ctx.beginPath();
     const viewR = Math.max(width, height) / cam.zoom;
     for(let r = Math.floor(Math.max(100, player.radius - viewR) / 200) * 200; r < player.radius + viewR; r += 200) {
@@ -587,58 +608,60 @@ export const LeapOrbitGame: React.FC = () => {
     }
     ctx.stroke();
 
-    // 中心
     ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2);
     ctx.fillStyle = player.centerTime > CENTER_SAFE_LIMIT ? (Math.floor(Date.now() / 100) % 2 === 0 ? '#ff0000' : '#500000') : '#333';
     ctx.fill(); ctx.stroke();
-    if (player.centerTime > CENTER_SAFE_LIMIT) {
-        ctx.beginPath(); ctx.arc(0, 0, 45, -Math.PI/2, -Math.PI/2 + (Math.PI * 2 * (player.centerTime - CENTER_SAFE_LIMIT) / (CENTER_DEATH_LIMIT - CENTER_SAFE_LIMIT)));
-        ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 4 / cam.zoom; ctx.stroke();
-    }
 
-    if (gameStateRef.current !== 'PLAYING' && gameStateRef.current !== 'GAMEOVER') { ctx.restore(); return; }
+    if (gameStateRef.current === 'START') { ctx.restore(); return; }
 
     shockwavesRef.current.forEach(sw => { ctx.beginPath(); ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2); ctx.strokeStyle = sw.color; ctx.lineWidth = (4 * sw.life) / cam.zoom; ctx.globalAlpha = sw.life; ctx.stroke(); ctx.globalAlpha = 1.0; });
     entitiesRef.current.forEach(e => {
         if (!e || !e.active) return;
         const x = Math.cos(e.angle) * e.dist; const y = Math.sin(e.angle) * e.dist;
-        if (Math.abs((x - cam.x) * cam.zoom) > width/2 + 100 || Math.abs((y - cam.y) * cam.zoom) > height/2 + 100) return;
+        if (Math.abs((x - cam.x) * cam.zoom) > width/2 + 200 || Math.abs((y - cam.y) * cam.zoom) > height/2 + 200) return;
         ctx.save(); ctx.translate(x, y);
+        ctx.globalAlpha = (gameStateRef.current === 'DYING' ? (deathTimerRef.current/maxDeathTimerRef.current) : 1);
+        
+        // 恢复发光效果
+        ctx.shadowColor = e.color;
+        ctx.shadowBlur = e.type === 'score' ? 10 : 20;
+
         if (e.type === 'enemy') {
             ctx.rotate(e.rotation); ctx.fillStyle = e.color; ctx.beginPath();
             for(let i=0; i<8; i++) { let rot = Math.PI/4*i; ctx.lineTo(Math.cos(rot)*e.size*e.scale, Math.sin(rot)*e.size*e.scale); ctx.lineTo(Math.cos(rot+Math.PI/8)*e.size*e.scale*0.5, Math.sin(rot+Math.PI/8)*e.size*e.scale*0.5); }
             ctx.fill();
         } else {
             ctx.fillStyle = e.color; ctx.beginPath(); ctx.arc(0, 0, e.size*e.scale, 0, Math.PI*2); ctx.fill();
+            // 恢复道具的白色内芯
             if (e.type !== 'score') { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, e.size*e.scale*0.4, 0, Math.PI*2); ctx.fill(); }
         }
         ctx.restore();
     });
-    particlesRef.current.forEach(p => { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1.0; });
-    floatingTextsRef.current.forEach(ft => { 
-        ctx.globalAlpha = Math.max(0, ft.life); 
-        ctx.fillStyle = ft.color; 
-        ctx.font = `bold ${ft.size}px monospace`; 
-        ctx.textAlign = 'center'; 
-        ctx.fillText(ft.text, ft.x, ft.y); 
-    });
-    // 【关键修复】：绘制完文字后强制重置 Alpha，防止污染后续绘制（玩家小球）
     ctx.globalAlpha = 1.0;
 
-    if (gameStateRef.current !== 'GAMEOVER') {
+    particlesRef.current.forEach(p => { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1.0; });
+    floatingTextsRef.current.forEach(ft => { ctx.globalAlpha = Math.max(0, ft.life); ctx.fillStyle = ft.color; ctx.font = `bold ${ft.size}px monospace`; ctx.textAlign = 'center'; ctx.fillText(ft.text, ft.x, ft.y); });
+    ctx.globalAlpha = 1.0;
+
+    if (gameStateRef.current !== 'GAMEOVER' && gameStateRef.current !== 'DYING') {
         if (player.radius < 3000) { ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(player.x, player.y); ctx.strokeStyle = `rgba(0, 210, 255, ${Math.max(0, (0.2 - player.radius / 3000))})`; ctx.stroke(); }
         if (player.trail.length > 1) { ctx.beginPath(); ctx.moveTo(player.trail[0].x, player.trail[0].y); player.trail.forEach(t => ctx.lineTo(t.x, t.y)); ctx.strokeStyle = player.dashTime > 0 ? COLORS.dash : player.color; ctx.lineWidth = player.size * (player.dashTime > 0 ? 1.5 : 0.8); ctx.stroke(); }
-        
-        // 【视觉保持】：玩家小球持续稳定显示，不闪烁
-        ctx.beginPath(); 
-        ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2); 
-        ctx.fillStyle = player.dashTime > 0 ? '#fff' : player.color; 
-        ctx.fill();
-        
-        if (player.shieldTime > 0) { ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 8, 0, Math.PI * 2); ctx.strokeStyle = `rgba(0, 255, 0, ${0.4 + Math.sin(Date.now() / 100) * 0.4})`; ctx.stroke(); }
-        if (player.dashTime > 0) { ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 12, 0, Math.PI * 2); ctx.strokeStyle = `rgba(249, 115, 22, 0.8)`; ctx.stroke(); }
+        ctx.beginPath(); ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2); ctx.fillStyle = player.dashTime > 0 ? '#fff' : player.color; ctx.fill();
     }
     ctx.restore();
+
+    if (gameStateRef.current === 'DYING') {
+        const barHeight = height * 0.12;
+        const progress = 1 - Math.pow(deathTimerRef.current / maxDeathTimerRef.current, 2);
+        const currentBarHeight = barHeight * progress;
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, width, currentBarHeight);
+        ctx.fillRect(0, height - currentBarHeight, width, currentBarHeight);
+        if (deathTimerRef.current < 25) {
+            ctx.fillStyle = `rgba(0, 0, 0, ${1 - deathTimerRef.current / 25})`;
+            ctx.fillRect(0, 0, width, height);
+        }
+    }
   };
 
   const loop = useCallback(() => { update(); draw(); frameId.current = requestAnimationFrame(loop); }, []);
@@ -660,7 +683,8 @@ export const LeapOrbitGame: React.FC = () => {
   useEffect(() => {
     const canvas = canvasRef.current;
     if(canvas) {
-        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); isPressing.current = true; }, { passive: false });
+        const prevent = (e: any) => e.preventDefault();
+        canvas.addEventListener('touchstart', (e) => { prevent(e); isPressing.current = true; }, { passive: false });
         canvas.addEventListener('touchend', () => isPressing.current = false);
         canvas.addEventListener('mousedown', () => isPressing.current = true);
         window.addEventListener('mouseup', () => isPressing.current = false);
@@ -668,44 +692,31 @@ export const LeapOrbitGame: React.FC = () => {
   }, []);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full font-sans select-none overflow-hidden">
+    <div ref={containerRef} className="relative w-full h-full font-sans select-none overflow-hidden bg-black">
         {/* Buff HUD */}
-        <div className="absolute top-4 left-4 flex flex-col gap-3 pointer-events-none z-20">
+        <div className={`absolute top-4 left-4 flex flex-col gap-3 pointer-events-none z-20 transition-opacity duration-1000 ${uiGameState !== 'PLAYING' ? 'opacity-0' : 'opacity-100'}`}>
             <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.shield > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
                 <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500 shadow-[0_0_10px_#00ff00]">
                     <Shield size={16} className="text-green-400" />
                 </div>
-                <span className="text-green-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">
-                    护盾 {Math.ceil(buffs.shield / 60)}s
-                </span>
+                <span className="text-green-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">护盾 {Math.ceil(buffs.shield / 60)}s</span>
             </div>
             <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.magnet > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
                 <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500 shadow-[0_0_10px_#bf00ff]">
                     <Zap size={16} className="text-purple-400" />
                 </div>
-                <div className="flex flex-col">
-                    <span className="text-purple-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">
-                        磁吸 {Math.ceil(buffs.magnet / 60)}s
-                    </span>
-                    {playerRef.current.magnetTime > 0 && (
-                         <span className="text-purple-300 text-[10px] leading-none opacity-80">
-                            剩余: {Math.max(0, 15 - playerRef.current.magnetCount)}
-                        </span>
-                    )}
-                </div>
+                <span className="text-purple-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">磁吸 {Math.ceil(buffs.magnet / 60)}s</span>
             </div>
              <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.dash > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
                 <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center border border-orange-500 shadow-[0_0_10px_#f97316]">
                     <Flame size={16} className="text-orange-400" />
                 </div>
-                <span className="text-orange-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">
-                    冲刺 {Math.ceil(buffs.dash / 60)}s
-                </span>
+                <span className="text-orange-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">冲刺 {Math.ceil(buffs.dash / 60)}s</span>
             </div>
         </div>
 
         {/* Orbit Counter HUD */}
-        {uiGameState === 'PLAYING' && (
+        {(uiGameState === 'PLAYING') && (
              <div className="absolute top-4 right-4 flex items-center gap-2 pointer-events-none z-20">
                 <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500 shadow-[0_0_10px_#00d2ff]">
                     <RotateCw size={16} className="text-blue-400" />
@@ -716,10 +727,8 @@ export const LeapOrbitGame: React.FC = () => {
 
         {/* Score HUD */}
         {uiGameState === 'PLAYING' && (
-            <div className="absolute top-10 left-1/2 -translate-x-1/2 pointer-events-none z-10 flex flex-col items-center">
-                <span className="text-6xl font-black text-white tracking-tighter" style={{ textShadow: '0 0 20px rgba(0,210,255,0.6)'}}>
-                    {scoreDisplay.toLocaleString()}
-                </span>
+            <div className="absolute top-10 left-1/2 -translate-x-1/2 pointer-events-none z-10 flex flex-col items-center animate-in fade-in duration-1000">
+                <span className="text-6xl font-black text-white tracking-tighter" style={{ textShadow: '0 0 20px rgba(0,210,255,0.6)'}}>{scoreDisplay.toLocaleString()}</span>
                 <span className="text-xs text-cyan-400/60 font-mono tracking-widest uppercase">Score</span>
             </div>
         )}
@@ -727,24 +736,21 @@ export const LeapOrbitGame: React.FC = () => {
         {/* Start Screen */}
         {uiGameState === 'START' && (
             <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/60 backdrop-blur-sm">
-                <div className="text-center p-8 border border-white/10 rounded-2xl bg-black/40 shadow-2xl max-w-sm mx-4 transform transition-all animate-in fade-in zoom-in duration-300">
-                    <h1 className="text-4xl font-black mb-1 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                        跃迁轨道
-                    </h1>
+                <div className="text-center p-8 border border-white/10 rounded-2xl bg-black/40 shadow-2xl max-w-sm mx-4 transform transition-all animate-in fade-in zoom-in duration-500">
+                    <h1 className="text-4xl font-black mb-1 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">跃迁轨道</h1>
                     <span className="text-xs text-slate-500 font-mono mb-8 block">{GAME_VERSION}</span>
                     <div className="space-y-4 mb-8 text-sm text-slate-300">
                         <p><span className="text-cyan-400 font-bold">综合计分</span>：光点 + 生存 + 圈数奖励</p>
-                        <p><span className="text-white font-bold">弹射反击</span>：获得动力弹射，利用惯性撞毁敌人</p>
-                        <p><span className="text-orange-400 font-bold">禁区保护</span>：磁铁不会生成在中心附近</p>
+                        <p><span className="text-white font-bold">弹射起步</span>：点击屏幕即可向上方跃迁</p>
                     </div>
-                    <button onClick={startGame} className="group relative px-8 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-full transition-all hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(8,145,178,0.5)] flex items-center gap-2 mx-auto">
-                        <Play size={20} className="fill-current" /> 开始游戏
+                    <button onClick={startGame} className="group relative px-10 py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-full transition-all hover:scale-105 active:scale-95 shadow-[0_0_25px_rgba(8,145,178,0.6)] flex items-center gap-2 mx-auto">
+                        <Play size={20} className="fill-current" /> 开启跃迁
                     </button>
                 </div>
             </div>
         )}
 
-        {/* Game Over Screen */}
+        {/* Game Over Screen - 恢复原版设计 */}
         {uiGameState === 'GAMEOVER' && (
             <div className="absolute inset-0 flex items-center justify-center z-30 bg-red-900/20 backdrop-blur-sm">
                 <div className="text-center p-6 border border-red-500/30 rounded-2xl bg-black/90 shadow-2xl w-80 mx-4 transform transition-all animate-in fade-in zoom-in duration-300">
