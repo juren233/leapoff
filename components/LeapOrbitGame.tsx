@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, Wifi, WifiOff, UploadCloud, Cloud } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v7.9.5-TimeFix";
+const GAME_VERSION = "v7.9.6-Haptic";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -296,6 +296,12 @@ export const LeapOrbitGame: React.FC = () => {
     const m = Math.floor(totalSeconds / 60);
     const s = totalSeconds % 60;
     return `${m}分${s}秒`;
+  };
+
+  const triggerHaptic = (pattern: number | number[]) => {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          try { navigator.vibrate(pattern); } catch(e) {}
+      }
   };
 
   const calculateCurrentTotalScore = () => {
@@ -634,7 +640,12 @@ export const LeapOrbitGame: React.FC = () => {
     }
 
     const player = playerRef.current;
-    if (player.shieldTime > 0) player.shieldTime--;
+    
+    // Shield Expiration Logic
+    if (player.shieldTime > 0) {
+        if (player.shieldTime === 1) triggerHaptic(200); // Vibrate on expire
+        player.shieldTime--;
+    }
     if (player.magnetTime > 0) player.magnetTime--;
     if (player.dashTime > 0) player.dashTime--;
     const hasShield = player.shieldTime > 0;
@@ -734,13 +745,17 @@ export const LeapOrbitGame: React.FC = () => {
           if (isDirectHit) { const boost = 15.0 + player.radius / 300; player.rVelocity = Math.max(player.rVelocity + boost, boost); }
           if (e.isSafety) e.active = false; else entitiesRef.current.splice(i, 1);
         } else if (e.type === 'shield') {
-          player.shieldTime = 400; createExplosion(ex, ey, COLORS.shield, 15); entitiesRef.current.splice(i, 1);
+          player.shieldTime = 400; triggerHaptic(40); 
+          createExplosion(ex, ey, COLORS.shield, 15); entitiesRef.current.splice(i, 1);
         } else if (e.type === 'magnet') {
-          player.magnetTime = 600; player.magnetCount = 0; createExplosion(ex, ey, COLORS.magnet, 15); entitiesRef.current.splice(i, 1);
+          player.magnetTime = 600; player.magnetCount = 0; triggerHaptic(40);
+          createExplosion(ex, ey, COLORS.magnet, 15); entitiesRef.current.splice(i, 1);
         } else if (e.type === 'dash') {
-          player.dashTime = 150; createExplosion(ex, ey, COLORS.dash, 20); createShockwave(ex, ey, COLORS.dash); entitiesRef.current.splice(i, 1);
+          player.dashTime = 150; triggerHaptic(40);
+          createExplosion(ex, ey, COLORS.dash, 20); createShockwave(ex, ey, COLORS.dash); entitiesRef.current.splice(i, 1);
         } else if (e.type === 'nuke') {
           createExplosion(ex, ey, COLORS.nuke, 20); createShockwave(ex, ey, COLORS.nuke); shake.current = 20;
+          triggerHaptic([40, 40, 100]); // Pattern vibration for nuke
           for (let j = entitiesRef.current.length - 1; j >= 0; j--) {
               const t = entitiesRef.current[j];
               if (t && t.type === 'enemy') {
@@ -756,6 +771,7 @@ export const LeapOrbitGame: React.FC = () => {
         } else if (e.type === 'enemy' && isDirectHit) {
             if (hasShield || hasDash || player.rVelocity > 0) {
                 createExplosion(ex, ey, COLORS.enemy, 20); createShockwave(ex, ey, COLORS.enemy);
+                triggerHaptic(80); // Stronger vibe for crushing enemy
                 spawnFloatingText(ex, ey, "+50", COLORS.enemy, 32); shake.current = 10; entitiesRef.current.splice(i, 1); actionScoreRef.current += 50; 
             } else triggerDyingSequence();
         }
