@@ -169,11 +169,6 @@ export const LeapOrbitGame: React.FC = () => {
               // 同步到本地备份，以备离线查看
               localStorage.setItem('leap_orbit_coins', (data.coins || 0).toString());
           } else if (error && error.code === 'PGRST116') {
-              // User has no record yet, start fresh but assume 0 coins
-              // Don't overwrite local storage if they played offline before login?
-              // Security choice: Authenticated state overrides Local state.
-              // To be nice, we could merge, but that opens up "offline farming" cheats.
-              // Let's stick to strict server authority for simplicity and security.
               setTotalCoins(0);
               setHighScore(0);
           }
