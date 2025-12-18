@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, Wifi, WifiOff, UploadCloud, Cloud } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v7.8.0-SyncFix";
+const GAME_VERSION = "v7.9.5-TimeFix";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -89,6 +89,7 @@ export const LeapOrbitGame: React.FC = () => {
   const actionScoreRef = useRef(0); 
   const orbitRef = useRef(1);      
   const gameStartTimeRef = useRef(0);
+  const gameEndTimeRef = useRef<number | null>(null); // New Ref to track exact death time
   const isFillingInnerZoneRef = useRef(true); 
   const deathTimerRef = useRef(0);
   const maxDeathTimerRef = useRef(180); // 3秒慢动作特写
@@ -253,7 +254,8 @@ export const LeapOrbitGame: React.FC = () => {
         }
 
         if (existing && existing.score >= score) {
-            setUploadStatus({status: 'success', msg: `未破纪录 (最高: ${existing.score})`});
+            setHighScore(existing.score); // 同步云端最高分到本地显示
+            setUploadStatus({status: 'success', msg: '未破纪录'});
             return; 
         }
 
@@ -297,7 +299,12 @@ export const LeapOrbitGame: React.FC = () => {
   };
 
   const calculateCurrentTotalScore = () => {
-    const survivalSeconds = (Date.now() - (gameStartTimeRef.current || Date.now())) / 1000;
+    // Determine the effective end time for score calculation
+    const endTime = gameEndTimeRef.current || Date.now();
+    // Prevent negative duration if start time is somehow ahead
+    const startTime = gameStartTimeRef.current || endTime;
+    const survivalSeconds = Math.max(0, (endTime - startTime) / 1000);
+    
     const timeScore = Math.floor(survivalSeconds * 5);
     const orbitBonus = (orbitRef.current - 1) * 100;
     const multiplier = 1 + (orbitRef.current - 1) * 0.1;
@@ -510,6 +517,7 @@ export const LeapOrbitGame: React.FC = () => {
     actionScoreRef.current = 0;
     orbitRef.current = 1; 
     gameStartTimeRef.current = Date.now();
+    gameEndTimeRef.current = null; // Reset end time
     isFillingInnerZoneRef.current = true; 
     cameraRef.current = { x: 0, y: 0, zoom: 1 };
     setScoreDisplay(0);
@@ -532,6 +540,9 @@ export const LeapOrbitGame: React.FC = () => {
   const triggerDyingSequence = () => {
     if (gameStateRef.current === 'DYING' || gameStateRef.current === 'GAMEOVER') return;
     
+    // Stop the survival timer exactly when death occurs
+    gameEndTimeRef.current = Date.now();
+
     gameStateRef.current = 'DYING';
     setUiGameState('DYING');
     deathTimerRef.current = maxDeathTimerRef.current; 
@@ -544,9 +555,14 @@ export const LeapOrbitGame: React.FC = () => {
 
   const handleGameOver = () => {
     gameStateRef.current = 'GAMEOVER';
-    const finalTime = Date.now() - gameStartTimeRef.current;
+    
+    // Calculate final time based on the locked end time
+    const finalTime = (gameEndTimeRef.current || Date.now()) - gameStartTimeRef.current;
     const finalTotalScore = calculateCurrentTotalScore();
     
+    // Fix: Force sync the display score with the final calculated score
+    setScoreDisplay(finalTotalScore);
+
     entitiesRef.current.forEach(e => {
         if (e && e.active) {
             const ex = Math.cos(e.angle) * e.dist;
@@ -832,6 +848,35 @@ export const LeapOrbitGame: React.FC = () => {
     if (gameStateRef.current !== 'GAMEOVER' && gameStateRef.current !== 'DYING') {
         if (player.radius < 3000) { ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(player.x, player.y); ctx.strokeStyle = `rgba(0, 210, 255, ${Math.max(0, (0.2 - player.radius / 3000))})`; ctx.stroke(); }
         if (player.trail.length > 1) { ctx.beginPath(); ctx.moveTo(player.trail[0].x, player.trail[0].y); player.trail.forEach(t => ctx.lineTo(t.x, t.y)); ctx.strokeStyle = player.dashTime > 0 ? COLORS.dash : player.color; ctx.lineWidth = player.size * (player.dashTime > 0 ? 1.5 : 0.8); ctx.stroke(); }
+        
+        // 视觉特效：护盾
+        if (player.shieldTime > 0) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.size + 5, 0, Math.PI * 2);
+            ctx.strokeStyle = COLORS.shield; // Green
+            ctx.lineWidth = 2;
+            ctx.shadowColor = COLORS.shield;
+            ctx.shadowBlur = 10;
+            ctx.globalAlpha = 0.6 + Math.sin(Date.now() * 0.01) * 0.2;
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // 视觉特效：磁吸
+        if (player.magnetTime > 0) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.size + 20, 0, Math.PI * 2);
+            ctx.strokeStyle = COLORS.magnet; // Purple
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.lineDashOffset = -Date.now() * 0.02; // Animated dash
+            ctx.globalAlpha = 0.5;
+            ctx.stroke();
+            ctx.restore();
+        }
+
         ctx.beginPath(); ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2); ctx.fillStyle = player.dashTime > 0 ? '#fff' : player.color; ctx.fill();
     }
     ctx.restore();
@@ -856,7 +901,8 @@ export const LeapOrbitGame: React.FC = () => {
     const handleResize = () => {
       if (containerRef.current && canvasRef.current) {
         const { clientWidth, clientHeight } = containerRef.current;
-        canvasRef.current.width = clientWidth; canvasRef.current.height = clientHeight;
+        canvasRef.current.width = clientWidth; 
+        canvasRef.current.height = clientHeight;
         dimensions.current = { width: clientWidth, height: clientHeight, cx: clientWidth / 2, cy: clientHeight / 2 };
         initStars(clientWidth, clientHeight);
       }
@@ -944,13 +990,14 @@ export const LeapOrbitGame: React.FC = () => {
                         <p><span className="text-cyan-400 font-bold">综合计分</span>：光点 + 生存 + 圈数奖励</p>
                         <p><span className="text-white font-bold">弹射起步</span>：点击屏幕即可向上方跃迁</p>
                     </div>
-                    <button onClick={startGame} className="group relative px-10 py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-full transition-all hover:scale-105 active:scale-95 shadow-[0_0_25px_rgba(8,145,178,0.6)] flex items-center gap-2 mx-auto">
-                        <Play size={20} className="fill-current" /> 开启跃迁
+                    {/* Updated Start Button - Fixed width w-64 */}
+                    <button onClick={startGame} className="group relative w-64 py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-full transition-all hover:scale-105 active:scale-95 shadow-[0_0_25px_rgba(8,145,178,0.6)] flex items-center justify-center gap-2 mx-auto">
+                        <Play size={20} className="fill-current" /> 开始游戏
                     </button>
                     
-                    {/* New Leaderboard Button Location */}
-                    <button onClick={openLeaderboard} className="mt-4 flex items-center gap-1 bg-yellow-900/20 hover:bg-yellow-800/30 text-yellow-200 text-xs px-4 py-2 rounded-full border border-yellow-500/30 transition-all mx-auto">
-                        <Award size={14} /> 排行榜
+                    {/* Updated Leaderboard Button - Fixed width w-64 matching start button */}
+                    <button onClick={openLeaderboard} className="mt-4 group relative w-64 py-4 bg-yellow-900/40 hover:bg-yellow-900/60 text-yellow-200 font-bold rounded-full border border-yellow-500/30 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 mx-auto shadow-[0_0_15px_rgba(234,179,8,0.2)]">
+                        <Award size={20} /> 排行榜
                     </button>
                 </div>
                 
