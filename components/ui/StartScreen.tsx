@@ -162,7 +162,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
       {/* --- HUD: BOTTOM (Tactical Modules) --- */}
       {/* Mobile: px-4, Desktop: px-10 */}
-      <div className="absolute bottom-0 w-full px-4 md:px-10 z-20 flex justify-between items-end pb-[max(2.5rem,calc(env(safe-area-inset-bottom)+1.5rem))] md:pb-10">
+      {/* Reduced bottom padding: pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.5rem))] */}
+      <div className="absolute bottom-0 w-full px-4 md:px-10 z-20 flex justify-between items-end pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.5rem))] md:pb-10">
          
          {/* Left: Leaderboard Module */}
          <button 

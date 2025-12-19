@@ -26,8 +26,8 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   onAuthOpen
 }) => {
   return (
-    // Mobile: Padding top/bottom for safe areas. Desktop: md:p-4 (standard centering).
-    <div className="absolute inset-0 z-30 bg-red-900/20 backdrop-blur-sm flex items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(3rem,calc(env(safe-area-inset-bottom)+2rem))] md:p-4">
+    // Mobile: Increased top padding (pt) for safe areas. Desktop: md:p-4.
+    <div className="absolute inset-0 z-30 bg-red-900/20 backdrop-blur-sm flex items-center justify-center p-4 pt-[max(3rem,calc(env(safe-area-inset-top)+2rem))] pb-[max(3rem,calc(env(safe-area-inset-bottom)+2rem))] md:p-4">
       {/* Mobile: p-5, Desktop: p-10 */}
       <div className="w-full max-w-sm md:max-w-3xl max-h-[90vh] overflow-y-auto custom-scrollbar bg-black/90 border border-red-500/30 rounded-3xl shadow-2xl p-5 md:p-10 text-center md:text-left transform transition-all animate-in fade-in zoom-in duration-300 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
         
