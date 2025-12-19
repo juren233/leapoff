@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, Wifi, WifiOff, UploadCloud, Cloud, Coins } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.1.10-Fixes";
+const GAME_VERSION = "v8.1.11-BonusUpdate";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -18,7 +18,7 @@ const PLAYER_CONFIG = {
 };
 
 const MAX_ALTITUDE = 1500; 
-const BONUS_DURATION_FRAMES = 60 * 6; // 6 seconds at 60fps
+const BONUS_DURATION_FRAMES = 60 * 10; // 10 seconds at 60fps
 const BONUS_SCORE_THRESHOLD = 2000;
 
 const COLORS = {
@@ -372,6 +372,9 @@ export const LeapOrbitGame: React.FC = () => {
       bonusTimerRef.current = BONUS_DURATION_FRAMES;
       setIsBonusTimeUI(true);
       
+      // Heavier gravity for bonus mode
+      playerRef.current.gravity = 0.25;
+
       // Visual flair
       shake.current = 10;
       triggerHaptic([50, 50, 50, 50, 200]); // Bonus notification
@@ -398,6 +401,9 @@ export const LeapOrbitGame: React.FC = () => {
       isBonusTimeRef.current = false;
       setIsBonusTimeUI(false);
       triggerHaptic(50);
+      
+      // Restore normal gravity
+      playerRef.current.gravity = PLAYER_CONFIG.gravity;
       
       // Restore Scene
       // 1. Remove remaining coins (or let them fade, but "restore" implies back to normal)
@@ -644,6 +650,7 @@ export const LeapOrbitGame: React.FC = () => {
       angle: 0,
       radius: PLAYER_CONFIG.baseRadius + 140, 
       rVelocity: 0,
+      gravity: PLAYER_CONFIG.gravity, // 重置重力，防止因奖励时间死亡导致的重力异常
       shieldTime: 0,
       magnetTime: 0,
       magnetCount: 0, 
@@ -1137,7 +1144,7 @@ export const LeapOrbitGame: React.FC = () => {
                 <div className={`mt-2 transition-all duration-300 ${isBonusTimeUI ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
                     <div className="bg-yellow-500/20 border border-yellow-400/50 rounded-full px-4 py-1 flex items-center gap-2">
                         <Clock className="w-4 h-4 text-yellow-400 animate-pulse" />
-                        <span className="text-yellow-300 font-bold font-mono tracking-widest text-sm">BONUS TIME {(bonusTimeLeft/60).toFixed(1)}s</span>
+                        <span className="text-yellow-300 font-bold font-mono tracking-widest text-sm">奖励时间 {(bonusTimeLeft/60).toFixed(1)}s</span>
                     </div>
                 </div>
             </div>
