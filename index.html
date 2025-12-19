@@ -10,7 +10,8 @@
         margin: 0;
         overflow: hidden;
         background-color: #111;
-        touch-action: none; /* Prevent browser zooming/scrolling on mobile */
+        /* Removed touch-action: none; managed in components now */
+        overscroll-behavior: none; /* Prevent elastic bounce on Mac/iOS */
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
       }
       /* Custom scanline effect */

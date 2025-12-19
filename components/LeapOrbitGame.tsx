@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, UploadCloud, Cloud, CloudOff, Coins, ShoppingBag, LogOut, UserCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.3.3-MobileScroll";
+const GAME_VERSION = "v8.3.4-ScrollFinal";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -153,27 +153,6 @@ export const LeapOrbitGame: React.FC = () => {
     totalCoinsRef.current = totalCoins;
   }, [totalCoins]);
   
-  // --- Mobile Scroll Fix Logic ---
-  // When in 'START' or 'GAMEOVER', we explicitly ALLOW default touch actions on the body.
-  // This is crucial because index.html sets touch-action: none globally.
-  // We override it here when needed.
-  useEffect(() => {
-      const body = document.body;
-      if (uiGameState === 'START' || uiGameState === 'GAMEOVER') {
-          // Allow scrolling in menus
-          body.style.touchAction = 'auto';
-          body.style.overflow = 'hidden'; // Keep body hidden, let the overlay scroll
-      } else {
-          // Disable scrolling during game
-          body.style.touchAction = 'none';
-          body.style.overflow = 'hidden';
-      }
-      
-      return () => {
-          body.style.touchAction = 'none'; // Revert to safe default on unmount
-      };
-  }, [uiGameState]);
-
   // Fetch User Data from Cloud (Source of Truth)
   // Wrapped in useCallback to be safe for dependency arrays if needed
   const fetchUserData = useCallback(async (userId: string) => {
@@ -1153,7 +1132,7 @@ export const LeapOrbitGame: React.FC = () => {
   }, []);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full font-sans select-none overflow-hidden bg-black">
+    <div ref={containerRef} className="relative w-full h-full font-sans select-none overflow-hidden bg-black touch-none">
         {/* Buff HUD - MOVED DOWN to avoid coin overlap */}
         <div className={`absolute top-14 left-4 flex flex-col gap-3 pointer-events-none z-20 transition-opacity duration-1000 ${uiGameState !== 'PLAYING' ? 'opacity-0' : 'opacity-100'}`}>
             <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.shield > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
