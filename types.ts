@@ -90,3 +90,28 @@ export interface LeaderboardEntry {
   score: number;
   created_at: string;
 }
+
+// --- New Shared Types for UI Components ---
+
+export type GameStateStatus = 'START' | 'PLAYING' | 'DYING' | 'GAMEOVER';
+
+export interface UploadStatus {
+  status: 'idle' | 'uploading' | 'success' | 'error';
+  msg: string;
+}
+
+export interface SystemStatus {
+  status: 'checking' | 'ok' | 'error';
+  msg: string;
+}
+
+export interface GameStats {
+  duration: number;
+  formattedDuration: string;
+  finalOrbit: number;
+  actionScore: number;
+  timeScore: number;
+  orbitBonus: number;
+  multiplier: number;
+  coinsCollected: number;
+}

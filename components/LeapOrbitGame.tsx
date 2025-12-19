@@ -1,41 +1,14 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, LeaderboardEntry } from '../types';
-import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, UploadCloud, Cloud, CloudOff, Coins, ShoppingBag, LogOut, UserCircle } from 'lucide-react';
+import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, LeaderboardEntry, GameStateStatus, GameStats, UploadStatus, SystemStatus } from '../types';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.5.4-ModalFit";
-
-// --- Game Constants ---
-const PLAYER_CONFIG = {
-  baseRadius: 100,
-  accelOut: 0,    
-  gravity: 0.125, 
-  drag: 0.94,     
-  rotSpeed: 0.01, 
-  dashRotSpeed: 0.03, 
-  size: 14,
-  trailLength: 25,
-};
-
-const MAX_ALTITUDE = 1500; 
-const BONUS_DURATION_FRAMES = 60 * 10; // 10 seconds at 60fps
-const BONUS_SCORE_THRESHOLD = 2000;
-
-const COLORS = {
-  player: '#00d2ff',
-  enemy: '#ff3333',
-  score: '#ffffff',
-  shield: '#00ff00',   
-  magnet: '#bf00ff',   
-  nuke: '#facc15',     
-  dash: '#f97316',
-  coin: '#fbbf24',     
-  background: '#111111',
-  grid: '#333333'
-};
-
-const CENTER_SAFE_LIMIT = 300; 
-const CENTER_DEATH_LIMIT = 480; 
+// New Imports
+import { PLAYER_CONFIG, COLORS, MAX_ALTITUDE, BONUS_DURATION_FRAMES, BONUS_SCORE_THRESHOLD, CENTER_SAFE_LIMIT, CENTER_DEATH_LIMIT } from '../constants';
+import { GameHUD } from './ui/GameHUD';
+import { StartScreen } from './ui/StartScreen';
+import { GameOverModal } from './modals/GameOverModal';
+import { AuthModal } from './modals/AuthModal';
+import { LeaderboardModal } from './modals/LeaderboardModal';
 
 interface Star {
   x: number;
@@ -43,8 +16,6 @@ interface Star {
   size: number;
   opacity: number;
 }
-
-type GameStateStatus = 'START' | 'PLAYING' | 'DYING' | 'GAMEOVER';
 
 export const LeapOrbitGame: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -65,7 +36,7 @@ export const LeapOrbitGame: React.FC = () => {
   // --- Refs for Stale Closure Prevention ---
   const totalCoinsRef = useRef(0);
 
-  const [gameStats, setGameStats] = useState({ 
+  const [gameStats, setGameStats] = useState<GameStats>({ 
     duration: 0, 
     formattedDuration: '0分0秒',
     finalOrbit: 1,
@@ -91,8 +62,8 @@ export const LeapOrbitGame: React.FC = () => {
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   
-  const [systemStatus, setSystemStatus] = useState<{status: 'checking' | 'ok' | 'error', msg: string}>({status: 'checking', msg: '正在连接服务器...'});
-  const [uploadStatus, setUploadStatus] = useState<{status: 'idle' | 'uploading' | 'success' | 'error', msg: string}>({status: 'idle', msg: ''});
+  const [systemStatus, setSystemStatus] = useState<SystemStatus>({status: 'checking', msg: '正在连接服务器...'});
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>({status: 'idle', msg: ''});
 
   // --- Mutable Game State ---
   const gameStateRef = useRef<GameStateStatus>('START');
@@ -154,7 +125,6 @@ export const LeapOrbitGame: React.FC = () => {
   }, [totalCoins]);
   
   // Fetch User Data from Cloud (Source of Truth)
-  // Wrapped in useCallback to be safe for dependency arrays if needed
   const fetchUserData = useCallback(async (userId: string) => {
       try {
           const { data, error } = await supabase
@@ -164,10 +134,8 @@ export const LeapOrbitGame: React.FC = () => {
             .single();
           
           if (data) {
-              // 覆盖本地数据，防止篡改本地存储作弊
               setTotalCoins(data.coins || 0);
               setHighScore(data.score || 0);
-              // 同步到本地备份，以备离线查看
               localStorage.setItem('leap_orbit_coins', (data.coins || 0).toString());
           } else if (error && error.code === 'PGRST116') {
               setTotalCoins(0);
@@ -183,7 +151,6 @@ export const LeapOrbitGame: React.FC = () => {
     
     // 1. Guest Mode: Simple Local Storage
     if (!currentSession || !currentSession.user) {
-        // Use ref to get latest total (guest)
         const currentTotal = totalCoinsRef.current;
         const newTotal = currentTotal + currentRunCoins;
         setTotalCoins(newTotal);
@@ -194,13 +161,9 @@ export const LeapOrbitGame: React.FC = () => {
     }
     
     // 2. Auth Mode: Secure Server Sync
-    // Important: We ignore 'totalCoins' from frontend state for the calculation 
-    // to prevent local memory tampering. We fetch server state, add run coins, then save.
-    
     setUploadStatus({status: 'uploading', msg: '正在同步数据...'});
 
     try {
-        // Step A: Fetch current server state (Truth)
         const { data: serverData, error: fetchError } = await supabase
             .from('high_scores')
             .select('score, coins')
@@ -214,10 +177,9 @@ export const LeapOrbitGame: React.FC = () => {
             serverCoins = serverData.coins || 0;
             serverScore = serverData.score || 0;
         } else if (fetchError && fetchError.code !== 'PGRST116') {
-             throw fetchError; // Real error, not just "not found"
+             throw fetchError; 
         }
 
-        // Step B: Calculate New Truth
         const newTotalCoins = serverCoins + currentRunCoins;
         const newHighScore = Math.max(serverScore, score);
 
@@ -229,25 +191,23 @@ export const LeapOrbitGame: React.FC = () => {
              msg = `再接再厉！还差 ${diff} 分就破记录了！`;
         }
 
-        // Step C: Upsert to Database
         const { error: upsertError } = await supabase
         .from('high_scores')
         .upsert({
             user_id: currentSession.user.id,
             username: currentSession.user.user_metadata.username || currentSession.user.email?.split('@')[0] || 'Unknown',
             score: newHighScore,
-            coins: newTotalCoins // SAVE THE COINS
+            coins: newTotalCoins 
         }, { onConflict: 'user_id' });
         
         if (upsertError) {
              if (upsertError.code === '42P01') setUploadStatus({status: 'error', msg: '云端表缺失'});
              else setUploadStatus({status: 'error', msg: '同步失败'});
         } else {
-            // Step D: Update Frontend State to match Server (Success)
             setHighScore(newHighScore);
             setTotalCoins(newTotalCoins);
-            setRunCoins(0); // Clear visual run coins
-            localStorage.setItem('leap_orbit_coins', newTotalCoins.toString()); // Backup
+            setRunCoins(0); 
+            localStorage.setItem('leap_orbit_coins', newTotalCoins.toString()); 
             setUploadStatus({status: 'success', msg: msg});
         }
     } catch (err: any) {
@@ -284,7 +244,6 @@ export const LeapOrbitGame: React.FC = () => {
     checkConnection();
 
     // 3. Auth Listener
-    // Note: We moved fetchUserData out of here to handle it more granularly
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       sessionRef.current = session;
@@ -302,16 +261,10 @@ export const LeapOrbitGame: React.FC = () => {
   useEffect(() => {
     if (session?.user) {
         if (uiGameState === 'GAMEOVER') {
-             // If the user logs in while on the Game Over screen, 
-             // automatically attempt to sync the result of the just-finished game.
-             // We check uploadStatus to prevent infinite loops or double uploads if already successful.
-             // 'idle' status here means it was processed as a Guest run locally, so we need to upgrade it to Cloud.
              if (uploadStatus.status === 'idle' || uploadStatus.status === 'error') {
-                 // Use gameStats.coinsCollected because runCoins state might have been reset by the guest sync
                  syncData(scoreDisplay, gameStats.coinsCollected);
              }
         } else {
-             // Normal login (e.g. Start Screen), just fetch the latest data
              fetchUserData(session.user.id);
         }
     }
@@ -349,10 +302,8 @@ export const LeapOrbitGame: React.FC = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    // Clear sensitive data on logout
     setTotalCoins(0);
     setHighScore(0);
-    // Optionally re-read local guest data
     const localCoins = localStorage.getItem('leap_orbit_coins');
     if (localCoins) setTotalCoins(parseInt(localCoins, 10));
     setUploadStatus({status: 'idle', msg: ''});
@@ -427,14 +378,8 @@ export const LeapOrbitGame: React.FC = () => {
       playerRef.current.gravity = PLAYER_CONFIG.gravity;
       
       // Restore Scene
-      // 1. Remove remaining coins (or let them fade, but "restore" implies back to normal)
-      // We will remove them to prevent easy farming after time ends
       entitiesRef.current = entitiesRef.current.filter(e => e.type !== 'coin');
-      
-      // 2. Respawn Safety Ring immediately
       spawnSafetyRing(orbitRef.current);
-      
-      // 3. Reset internal filling logic to allow normal spawning again
       isFillingInnerZoneRef.current = true;
   };
 
@@ -501,9 +446,7 @@ export const LeapOrbitGame: React.FC = () => {
   };
 
   const spawnSafetyRing = (orbitNum: number) => {
-      // Don't spawn if in bonus mode
       if (isBonusTimeRef.current) return;
-
       entitiesRef.current = entitiesRef.current.filter(e => e && !e.isSafety);
       let count = 40;
       if (orbitNum > 3) {
@@ -532,7 +475,7 @@ export const LeapOrbitGame: React.FC = () => {
   };
 
   const spawnInnerAmbience = () => {
-    if (isBonusTimeRef.current) return; // No ambience during bonus
+    if (isBonusTimeRef.current) return;
     if (entitiesRef.current.length > 350) return;
     const SAFE_ZONE_RADIUS = PLAYER_CONFIG.baseRadius + 300;
     const currentInnerCount = entitiesRef.current.filter(e => 
@@ -578,7 +521,7 @@ export const LeapOrbitGame: React.FC = () => {
     
     // Bonus Mode Spawning Logic
     if (isBonusTimeRef.current) {
-        if (Math.random() > 0.15) return; // High spawn rate for coins
+        if (Math.random() > 0.15) return; 
         const spawnDist = randomRange(PLAYER_CONFIG.baseRadius + 50, MAX_ALTITUDE - 200);
         entitiesRef.current.push({
             id: entityIdCounter.current++,
@@ -637,15 +580,12 @@ export const LeapOrbitGame: React.FC = () => {
     const ENEMY_SAFE_DIST = PLAYER_CONFIG.baseRadius + 300;
     if (type === 'enemy' && spawnDist < ENEMY_SAFE_DIST) type = 'score';
 
-    // --- Fix: Safe Spawn Check for Enemies ---
     const spawnAngle = randomRange(0, Math.PI * 2);
-    // Determine spawn position before creating entity
     if (type === 'enemy') {
         const ex = Math.cos(spawnAngle) * spawnDist;
         const ey = Math.sin(spawnAngle) * spawnDist;
         const dx = playerRef.current.x - ex;
         const dy = playerRef.current.y - ey;
-        // Don't spawn enemy if it is too close to player (600px safe radius squared = 360000)
         if ((dx * dx + dy * dy) < 360000) return; 
     }
 
@@ -671,7 +611,7 @@ export const LeapOrbitGame: React.FC = () => {
       angle: 0,
       radius: PLAYER_CONFIG.baseRadius + 140, 
       rVelocity: 0,
-      gravity: PLAYER_CONFIG.gravity, // 重置重力，防止因奖励时间死亡导致的重力异常
+      gravity: PLAYER_CONFIG.gravity, 
       shieldTime: 0,
       magnetTime: 0,
       magnetCount: 0, 
@@ -789,13 +729,11 @@ export const LeapOrbitGame: React.FC = () => {
 
     const player = playerRef.current;
     
-    // --- Bonus Time Logic (FIXED) ---
-    // Calculate total score every frame to determine bonus trigger
+    // --- Bonus Time Logic ---
     const currentTotalScore = calculateCurrentTotalScore();
     
     if (isBonusTimeRef.current) {
         bonusTimerRef.current--;
-        // Update UI every 10 frames roughly
         if (bonusTimerRef.current % 10 === 0) setBonusTimeLeft(bonusTimerRef.current);
         
         if (bonusTimerRef.current <= 0) {
@@ -803,8 +741,6 @@ export const LeapOrbitGame: React.FC = () => {
         }
     } else {
         if (currentTotalScore !== scoreDisplay) setScoreDisplay(currentTotalScore);
-        
-        // Trigger check: when total score surpasses the next threshold (2000, 4000, etc.)
         const nextThreshold = lastBonusThresholdRef.current + BONUS_SCORE_THRESHOLD;
         if (currentTotalScore >= nextThreshold) {
             lastBonusThresholdRef.current += BONUS_SCORE_THRESHOLD;
@@ -854,7 +790,6 @@ export const LeapOrbitGame: React.FC = () => {
 
     const DANGER_ZONE = player.baseRadius + 10;
     if (player.radius <= DANGER_ZONE) {
-        // If in bonus time and hit hub -> immediate end
         if (isBonusTimeRef.current) {
             endBonusMode();
         }
@@ -877,20 +812,10 @@ export const LeapOrbitGame: React.FC = () => {
     // --- IMPROVED CAMERA LOGIC FOR MOBILE ---
     const { width, height } = dimensions.current;
     
-    // Determine the viewport dimension that restricts the view the most
     const fitDimension = Math.min(width, height);
-    
-    // Calculate how much space we need to show the player and a bit of margin
-    // We want to ensure we see the player, and enough context around them
-    // Base safety distance is roughly the player radius * 2 (diameter) + extra padding
     const requiredViewDiameter = (player.radius * 2) + (hasDash ? 400 : 300);
-    
-    // Calculate zoom based on fitting that diameter into the smallest screen dimension
-    // We clamp it: 
-    // - Max 1.2 (Don't zoom in too close)
-    // - Min 0.3 (or 0.25 on very small screens) to allow seeing far out
     const targetZoom = Math.max(
-        width < 600 ? 0.25 : 0.35, // Allow slightly more zoom out on mobile portrait
+        width < 600 ? 0.25 : 0.35,
         Math.min(1.2, fitDimension / requiredViewDiameter)
     );
 
@@ -1052,9 +977,7 @@ export const LeapOrbitGame: React.FC = () => {
             ctx.fill();
         } else {
             ctx.fillStyle = e.color; ctx.beginPath(); ctx.arc(0, 0, e.size*e.scale, 0, Math.PI*2); ctx.fill();
-            // 恢复道具的白色内芯 (coin 除外，金币是金色的)
             if (e.type !== 'score' && e.type !== 'coin') { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, e.size*e.scale*0.4, 0, Math.PI*2); ctx.fill(); }
-            // Coin details
             if (e.type === 'coin') {
                 ctx.fillStyle = '#fff9c4'; 
                 ctx.beginPath(); ctx.arc(0, 0, e.size*e.scale*0.4, 0, Math.PI*2); ctx.fill();
@@ -1072,13 +995,11 @@ export const LeapOrbitGame: React.FC = () => {
         if (player.radius < 3000) { ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(player.x, player.y); ctx.strokeStyle = `rgba(0, 210, 255, ${Math.max(0, (0.2 - player.radius / 3000))})`; ctx.stroke(); }
         if (player.trail.length > 1) { ctx.beginPath(); ctx.moveTo(player.trail[0].x, player.trail[0].y); player.trail.forEach(t => ctx.lineTo(t.x, t.y)); ctx.strokeStyle = player.dashTime > 0 ? COLORS.dash : player.color; ctx.lineWidth = player.size * (player.dashTime > 0 ? 1.5 : 0.8); ctx.stroke(); }
         
-        // 视觉特效：护盾
         if (player.shieldTime > 0) {
             ctx.save(); ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 5, 0, Math.PI * 2);
             ctx.strokeStyle = COLORS.shield; ctx.lineWidth = 2; ctx.shadowColor = COLORS.shield; ctx.shadowBlur = 10;
             ctx.globalAlpha = 0.6 + Math.sin(Date.now() * 0.01) * 0.2; ctx.stroke(); ctx.restore();
         }
-        // 视觉特效：磁吸
         if (player.magnetTime > 0) {
             ctx.save(); ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 20, 0, Math.PI * 2);
             ctx.strokeStyle = COLORS.magnet; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
@@ -1088,19 +1009,6 @@ export const LeapOrbitGame: React.FC = () => {
         ctx.beginPath(); ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2); ctx.fillStyle = player.dashTime > 0 ? '#fff' : player.color; ctx.fill();
     }
     ctx.restore();
-
-    if (gameStateRef.current === 'DYING') {
-        const barHeight = height * 0.12;
-        const progress = 1 - Math.pow(deathTimerRef.current / maxDeathTimerRef.current, 2);
-        const currentBarHeight = barHeight * progress;
-        ctx.fillStyle = 'black';
-        ctx.fillRect(0, 0, width, currentBarHeight);
-        ctx.fillRect(0, height - currentBarHeight, width, currentBarHeight);
-        if (deathTimerRef.current < 25) {
-            ctx.fillStyle = `rgba(0, 0, 0, ${1 - deathTimerRef.current / 25})`;
-            ctx.fillRect(0, 0, width, height);
-        }
-    }
   };
 
   const loop = useCallback(() => { update(); draw(); frameId.current = requestAnimationFrame(loop); }, []);
@@ -1133,362 +1041,67 @@ export const LeapOrbitGame: React.FC = () => {
 
   return (
     <div ref={containerRef} className="relative w-full h-full font-sans select-none overflow-hidden bg-black touch-none">
-        {/* Buff HUD - MOVED DOWN to avoid coin overlap */}
-        <div className={`absolute top-14 left-4 flex flex-col gap-3 pointer-events-none z-20 transition-opacity duration-1000 ${uiGameState !== 'PLAYING' ? 'opacity-0' : 'opacity-100'}`}>
-            <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.shield > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
-                <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500 shadow-[0_0_10px_#00ff00]">
-                    <Shield size={16} className="text-green-400" />
-                </div>
-                <span className="text-green-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">护盾 {Math.ceil(buffs.shield / 60)}s</span>
-            </div>
-            <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.magnet > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
-                <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500 shadow-[0_0_10px_#bf00ff]">
-                    <Zap size={16} className="text-purple-400" />
-                </div>
-                <span className="text-purple-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">磁吸 {Math.ceil(buffs.magnet / 60)}s</span>
-            </div>
-             <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.dash > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
-                <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center border border-orange-500 shadow-[0_0_10px_#f97316]">
-                    <Flame size={16} className="text-orange-400" />
-                </div>
-                <span className="text-orange-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">冲刺 {Math.ceil(buffs.dash / 60)}s</span>
-            </div>
-        </div>
+        <GameHUD
+            uiGameState={uiGameState}
+            buffs={buffs}
+            totalCoins={totalCoins}
+            runCoins={runCoins}
+            orbitCountDisplay={orbitCountDisplay}
+            scoreDisplay={scoreDisplay}
+            isBonusTimeUI={isBonusTimeUI}
+            bonusTimeLeft={bonusTimeLeft}
+        />
 
-        {/* Coin HUD (Left Top) */}
-        <div className="absolute top-4 left-4 z-30 pointer-events-none">
-             <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-full px-3 py-1.5 border border-yellow-500/30 mb-2">
-                <Coins size={16} className="text-yellow-400" />
-                <span className="text-yellow-100 font-mono font-bold text-sm">{(totalCoins + runCoins).toLocaleString()}</span>
-             </div>
-        </div>
-
-        {/* Orbit Counter HUD */}
-        {(uiGameState === 'PLAYING') && (
-             <div className="absolute top-4 right-4 flex items-center gap-2 pointer-events-none z-20">
-                <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500 shadow-[0_0_10px_#00d2ff]">
-                    <RotateCw size={16} className="text-blue-400" />
-                </div>
-                <span className="text-blue-400 font-bold tracking-wider text-sm shadow-black drop-shadow-md">第 {orbitCountDisplay} 圈</span>
-            </div>
-        )}
-
-        {/* Score HUD */}
-        {uiGameState === 'PLAYING' && (
-            <div className="absolute top-10 left-1/2 -translate-x-1/2 pointer-events-none z-10 flex flex-col items-center animate-in fade-in duration-1000">
-                <span className="text-6xl font-black text-white tracking-tighter" style={{ textShadow: '0 0 20px rgba(0,210,255,0.6)'}}>{scoreDisplay.toLocaleString()}</span>
-                <span className="text-xs text-cyan-400/60 font-mono tracking-widest uppercase">Score</span>
-                
-                {/* Bonus Time Indicator */}
-                <div className={`mt-2 transition-all duration-300 ${isBonusTimeUI ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
-                    <div className="bg-yellow-500/20 border border-yellow-400/50 rounded-full px-4 py-1 flex items-center gap-2">
-                        <Clock className="w-4 h-4 text-yellow-400 animate-pulse" />
-                        <span className="text-yellow-300 font-bold font-mono tracking-widest text-sm">奖励时间 {(bonusTimeLeft/60).toFixed(1)}s</span>
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* Start Screen (Refactored: Split Content and Fixed Dock) */}
         {uiGameState === 'START' && (
-            <div className="absolute inset-0 z-30 bg-black/40 backdrop-blur-sm animate-in fade-in duration-500 flex flex-col">
-                
-                {/* 1. Scrollable Content Layer (Has padding bottom to avoid overlap) */}
-                <div 
-                    className="flex-1 w-full overflow-y-auto overflow-x-hidden pb-40 lg:pb-0 touch-pan-y overscroll-contain relative [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
-                >
-                     {/* --- Top Bar: Profile & Assets --- */}
-                    <div className="w-full flex justify-between items-center p-4 md:p-6 pb-2 safe-area-top sticky top-0 z-10">
-                        {/* Left: User Profile */}
-                        <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyan-900/40 border border-cyan-500/30 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.2)]">
-                                <UserCircle size={18} className="md:w-5 md:h-5 text-cyan-400" />
-                            </div>
-                            <div className="flex flex-col">
-                                {session ? (
-                                    <>
-                                        <span className="text-xs md:text-sm font-bold text-white tracking-wide">{session.user.user_metadata.username || '玩家'}</span>
-                                        <button onClick={handleLogout} className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-300 uppercase tracking-wider">
-                                            <LogOut size={10} /> 退出登录
-                                        </button>
-                                    </>
-                                ) : (
-                                    <button onClick={() => setShowAuthModal(true)} className="text-xs text-cyan-400 font-bold hover:underline">
-                                        点击登录
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Right: Coins */}
-                        <div className="flex flex-col items-end">
-                            <div className="flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-full border border-yellow-500/30 shadow-[0_0_10px_rgba(234,179,8,0.1)]">
-                                <Coins size={14} className="text-yellow-400" />
-                                <span className="text-yellow-400 font-mono font-bold text-sm tracking-widest">{totalCoins.toLocaleString()}</span>
-                            </div>
-                            <span className="text-[10px] text-yellow-500/50 uppercase tracking-widest mt-1 mr-2">金币</span>
-                        </div>
-                    </div>
-
-                    {/* --- Center Stage: Title & Play --- */}
-                    <div className="flex flex-col items-center justify-center py-8 lg:py-16 w-full max-w-[95vw] mx-auto">
-                        <div className="relative z-10 text-center mb-8 md:mb-12 px-8 w-full">
-                            <h1 className="text-4xl md:text-6xl font-black italic tracking-tighter bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(34,211,238,0.4)] transform -rotate-2 py-2 px-2">
-                                跃迁轨道
-                            </h1>
-                            <div className="flex items-center justify-center gap-3 mt-2 opacity-80">
-                                <div className="h-[1px] w-8 md:w-12 bg-gradient-to-r from-transparent to-cyan-500"></div>
-                                <span className="text-[10px] md:text-xs font-mono text-cyan-500 tracking-[0.2em]">{GAME_VERSION}</span>
-                                <div className="h-[1px] w-8 md:w-12 bg-gradient-to-l from-transparent to-cyan-500"></div>
-                            </div>
-                        </div>
-
-                        <button 
-                            onClick={startGame} 
-                            className="group relative w-20 h-20 md:w-24 md:h-24 rounded-full bg-cyan-500/10 border border-cyan-400/50 flex items-center justify-center transition-all hover:scale-110 active:scale-95 hover:bg-cyan-500/20"
-                        >
-                            {/* Pulse Ring 1 */}
-                            <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-ping opacity-20"></div>
-                            {/* Pulse Ring 2 */}
-                            <div className="absolute -inset-2 rounded-full border border-cyan-500/10 animate-pulse"></div>
-                            
-                            <Play size={28} className="md:w-8 md:h-8 fill-cyan-400 text-cyan-400 ml-1 group-hover:drop-shadow-[0_0_10px_rgba(34,211,238,0.8)] transition-all" />
-                        </button>
-                        <span className="mt-4 text-xs text-cyan-400/60 font-mono tracking-widest uppercase animate-pulse">开始游戏</span>
-                        
-                        <div className="mt-6 md:mt-8 text-xs text-slate-500 flex flex-col items-center gap-1 opacity-60">
-                            <p>长按旋转前进</p>
-                            <p>躲避红刺 · 收集光点</p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* 2. Fixed Dock Layer (Larger, higher, and cleaner) */}
-                <div className="absolute bottom-6 left-6 right-6 z-40 lg:bottom-10 lg:left-1/2 lg:-translate-x-1/2 lg:w-auto lg:right-auto pointer-events-none">
-                    <div className="
-                        pointer-events-auto
-                        flex items-end justify-around w-full 
-                        lg:w-auto lg:items-center lg:gap-8 lg:px-8 lg:py-4
-                        bg-neutral-950/90 backdrop-blur-xl border-t border-white/10 lg:border lg:rounded-full lg:shadow-2xl lg:bg-neutral-900/80
-                        pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-4 lg:pb-4 rounded-3xl lg:rounded-full
-                        border-x border-b shadow-2xl border-neutral-800
-                    ">
-                        {/* Leaderboard */}
-                        <button onClick={openLeaderboard} className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-white/5 transition-colors group w-16 lg:w-auto">
-                            <Trophy size={22} className="text-slate-400 group-hover:text-yellow-400 transition-colors" />
-                            <span className="text-[10px] text-slate-500 font-bold group-hover:text-slate-300 lg:hidden">排行榜</span>
-                        </button>
-
-                        {/* Shop (Center) */}
-                        <button onClick={openShop} className="group relative -top-8 lg:top-0 lg:relative">
-                            <div className="w-16 h-16 md:w-14 md:h-14 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(124,58,237,0.5)] border-4 border-black group-hover:scale-110 transition-transform">
-                                <ShoppingBag size={26} className="text-white" />
-                            </div>
-                            <span className="text-[10px] text-purple-400 font-bold absolute -bottom-5 left-1/2 -translate-x-1/2 lg:hidden bg-black/80 px-2 py-0.5 rounded-full border border-purple-500/30 whitespace-nowrap z-50">商店</span>
-                        </button>
-
-                        {/* Status */}
-                        <div className="flex flex-col items-center gap-1.5 p-2 rounded-xl w-16 lg:w-auto opacity-80">
-                            {systemStatus.status === 'checking' && <Loader2 size={22} className="animate-spin text-slate-500" />}
-                            {systemStatus.status === 'ok' && <Cloud size={22} className="text-green-500" />}
-                            {systemStatus.status === 'error' && <CloudOff size={22} className="text-red-500" />}
-                            <span className="text-[10px] text-slate-500 font-bold lg:hidden">
-                                {systemStatus.status === 'checking' ? '上云中' : (systemStatus.status === 'ok' ? '云端数据' : '本地离线')}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <StartScreen
+                session={session}
+                totalCoins={totalCoins}
+                systemStatus={systemStatus}
+                onStart={startGame}
+                onLogout={handleLogout}
+                onAuthOpen={() => setShowAuthModal(true)}
+                onLeaderboardOpen={openLeaderboard}
+                onShopOpen={openShop}
+            />
         )}
 
-        {/* Auth Modal */}
         {showAuthModal && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in overflow-y-auto touch-pan-y overscroll-contain">
-                <div className="w-full max-w-xs bg-neutral-900 border border-cyan-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(6,182,212,0.15)] relative my-auto">
-                    <button onClick={() => setShowAuthModal(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20}/></button>
-                    {/* Updated Title */}
-                    <h2 className="text-xl font-bold text-white mb-6 text-center">{authMode === 'login' ? '登录' : '注册'}</h2>
-                    
-                    {authError && (
-                        <div className="mb-4 p-2 bg-red-500/20 border border-red-500/50 rounded text-xs text-red-200 flex items-center gap-2">
-                           <AlertTriangle size={12}/> {authError}
-                        </div>
-                    )}
-
-                    <form onSubmit={handleAuth} className="space-y-4">
-                        {authMode === 'signup' && (
-                             <div>
-                                <label className="block text-xs text-slate-400 mb-1">用户名</label>
-                                <input type="text" required value={authUsername} onChange={e => setAuthUsername(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" />
-                            </div>
-                        )}
-                        <div>
-                            <label className="block text-xs text-slate-400 mb-1">电子邮箱</label>
-                            <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" />
-                        </div>
-                        <div>
-                            <label className="block text-xs text-slate-400 mb-1">密码</label>
-                            <input type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-lg p-2.5 text-sm text-white focus:border-cyan-500 focus:outline-none transition-colors" />
-                        </div>
-                        <button type="submit" disabled={authLoading} className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2 mt-2">
-                            {authLoading ? <Loader2 size={16} className="animate-spin"/> : (authMode === 'login' ? '登录游戏' : '注册账号')}
-                        </button>
-                    </form>
-                    
-                    <div className="mt-4 text-center text-xs text-slate-500">
-                        {authMode === 'login' ? '没有账号? ' : '已有账号? '}
-                        <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-cyan-400 hover:underline">
-                            {authMode === 'login' ? '立即注册' : '点我登录'}
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <AuthModal
+                authMode={authMode}
+                setAuthMode={setAuthMode}
+                authUsername={authUsername}
+                setAuthUsername={setAuthUsername}
+                authEmail={authEmail}
+                setAuthEmail={setAuthEmail}
+                authPassword={authPassword}
+                setAuthPassword={setAuthPassword}
+                authLoading={authLoading}
+                authError={authError}
+                onSubmit={handleAuth}
+                onClose={() => setShowAuthModal(false)}
+            />
         )}
 
-        {/* Leaderboard Modal */}
         {showLeaderboard && (
-             <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in touch-pan-y overscroll-contain">
-                <div className="w-full max-w-sm bg-neutral-900 border border-yellow-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(234,179,8,0.15)] relative h-[70vh] max-h-[600px] flex flex-col">
-                    <button onClick={() => setShowLeaderboard(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20}/></button>
-                    <div className="flex items-center justify-center gap-2 mb-6">
-                        <Trophy className="text-yellow-500" size={24} />
-                        {/* Updated Title */}
-                        <h2 className="text-xl font-bold text-white tracking-wider">排行榜</h2>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar touch-pan-y">
-                        {leaderboardLoading ? (
-                            <div className="flex flex-col items-center justify-center h-40 text-slate-500 gap-2">
-                                <Loader2 size={24} className="animate-spin"/>
-                                <span className="text-xs">加速载入中...</span>
-                            </div>
-                        ) : (
-                            <div className="space-y-2">
-                                <div className="grid grid-cols-12 text-xs text-slate-500 pb-2 border-b border-white/10 px-2">
-                                    <div className="col-span-2 text-center">排名</div>
-                                    {/* Updated Header */}
-                                    <div className="col-span-6">玩家</div>
-                                    <div className="col-span-4 text-right">分数</div>
-                                </div>
-                                {leaderboardData.map((entry, index) => {
-                                    let rankColor = "text-slate-400";
-                                    let rankBg = "bg-white/5";
-                                    if(index === 0) { rankColor = "text-yellow-400"; rankBg = "bg-yellow-500/10 border border-yellow-500/30"; }
-                                    else if(index === 1) { rankColor = "text-slate-300"; rankBg = "bg-slate-400/10 border border-slate-400/30"; }
-                                    else if(index === 2) { rankColor = "text-orange-400"; rankBg = "bg-orange-600/10 border border-orange-600/30"; }
-
-                                    return (
-                                        <div key={index} className={`grid grid-cols-12 items-center p-3 rounded-lg ${rankBg} text-sm`}>
-                                            <div className={`col-span-2 text-center font-bold ${rankColor}`}>#{index + 1}</div>
-                                            <div className="col-span-6 font-mono text-white truncate pr-2">{entry.username}</div>
-                                            <div className={`col-span-4 text-right font-mono font-bold ${rankColor}`}>{entry.score.toLocaleString()}</div>
-                                        </div>
-                                    )
-                                })}
-                                {leaderboardData.length === 0 && (
-                                    <div className="text-center py-8 text-slate-600 text-sm">暂无记录，虚位以待</div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                     <div className="mt-4 pt-4 border-t border-white/10 text-center text-xs text-slate-500">
-                        {/* Updated Footer */}
-                        仅展示全球前10名玩家分数
-                    </div>
-                </div>
-             </div>
+            <LeaderboardModal
+                loading={leaderboardLoading}
+                data={leaderboardData}
+                onClose={() => setShowLeaderboard(false)}
+            />
         )}
 
-        {/* Game Over Screen (Fully Adaptive & Centered) */}
         {uiGameState === 'GAMEOVER' && (
-            <div className="absolute inset-0 z-30 bg-red-900/20 backdrop-blur-sm flex items-center justify-center p-4">
-                 {/* 
-                   Centered Flexbox for all views.
-                   Added max-h-[75vh] to ensure it fits in landscape mobile screens.
-                   Added overflow-y-auto to allow scrolling inside the modal if the screen is tiny.
-                   Now HIDING scrollbars as requested.
-                 */}
-                <div className="w-full max-w-sm max-h-[75vh] overflow-y-auto custom-scrollbar bg-black/90 border border-red-500/30 rounded-2xl shadow-2xl p-6 text-center transform transition-all animate-in fade-in zoom-in duration-300 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
-                    <div className="inline-block p-3 rounded-full bg-red-500/20 mb-4 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]">
-                        <Skull size={32} className="text-red-500" />
-                    </div>
-                    <h2 className="text-3xl font-black text-white mb-6">游戏结束</h2>
-                    
-                    <div className="space-y-2 mb-6 text-left">
-                        <div className="flex justify-between items-center text-sm p-2 bg-white/5 rounded border border-white/5">
-                            <span className="text-slate-400 flex items-center gap-2"><Target size={14} className="text-cyan-400"/> 游戏得分</span>
-                            <span className="font-mono text-cyan-400">+{gameStats.actionScore}</span>
-                        </div>
-                        {/* Restore Survival Score */}
-                        <div className="flex justify-between items-center text-sm p-2 bg-white/5 rounded border border-white/5">
-                            <span className="text-slate-400 flex items-center gap-2"><Clock size={14} className="text-green-400"/> 生存得分 ({gameStats.formattedDuration})</span>
-                            <span className="font-mono text-green-400">+{gameStats.timeScore}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm p-2 bg-white/5 rounded border border-white/5">
-                            <span className="text-slate-400 flex items-center gap-2"><Hash size={14} className="text-yellow-400"/> 圈数得分 ({gameStats.finalOrbit} 圈)</span>
-                            <span className="font-mono text-yellow-400">+{gameStats.orbitBonus}</span>
-                        </div>
-                         {/* Coins moved here */}
-                        <div className="flex justify-between items-center text-sm p-2 bg-white/5 rounded border border-white/5">
-                            <span className="text-slate-400 flex items-center gap-2"><Coins size={14} className="text-yellow-400"/> 获得金币</span>
-                            <span className="font-mono text-yellow-400">+{gameStats.coinsCollected}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-xs px-2 pt-2 text-slate-500 italic">
-                            <span>全局倍率加成</span>
-                            <span>x{gameStats.multiplier.toFixed(1)}</span>
-                        </div>
-                        <div className="border-t border-white/20 pt-4 mt-2">
-                             <div className="flex justify-between items-end">
-                                <span className="text-xs text-slate-400 uppercase font-bold">最终总分</span>
-                                <span className="text-4xl font-black text-white shadow-cyan-500 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]">
-                                    {scoreDisplay.toLocaleString()}
-                                </span>
-                             </div>
-                        </div>
-
-                        {/* Upload Status Feedback with Retry Button */}
-                        {session ? (
-                            <div className="flex flex-col gap-2 mt-3">
-                                <div className={`text-center text-xs py-2 rounded flex items-center justify-center gap-2 transition-colors ${
-                                    uploadStatus.status === 'success' ? 'bg-green-900/30 text-green-400' :
-                                    uploadStatus.status === 'error' ? 'bg-red-900/30 text-red-400' :
-                                    'bg-blue-900/30 text-blue-400'
-                                }`}>
-                                    {(uploadStatus.status === 'uploading' || uploadStatus.status === 'idle') && <Loader2 size={12} className="animate-spin" />}
-                                    {uploadStatus.status === 'success' && <CheckCircle size={12} />}
-                                    {uploadStatus.status === 'error' && <AlertTriangle size={12} />}
-                                    <span>{uploadStatus.msg || (uploadStatus.status === 'idle' ? '准备上传...' : '')}</span>
-                                </div>
-                                {/* Retry Button */}
-                                {(uploadStatus.status === 'error' || uploadStatus.status === 'idle') && (
-                                    <button onClick={() => syncData(scoreDisplay, runCoins)} className="text-xs bg-white/10 py-1.5 rounded hover:bg-white/20 transition-colors flex items-center justify-center gap-1 text-slate-300">
-                                        <UploadCloud size={12} /> 重试上传
-                                    </button>
-                                )}
-                            </div>
-                        ) : (
-                            <button onClick={() => setShowAuthModal(true)} className="w-full text-center text-xs text-cyan-400/80 mt-2 bg-cyan-900/20 py-2 rounded hover:bg-cyan-900/40 transition-colors border border-cyan-500/20">
-                                点我登录以同步分数至云端，与全球玩家PK霸榜
-                            </button>
-                        )}
-                    </div>
-
-                    <div className="bg-yellow-500/10 p-3 rounded-lg border border-yellow-500/20 mb-6 flex items-center justify-center gap-2">
-                        <Trophy size={16} className="text-yellow-500" /> 
-                        <span className="text-xs text-slate-400 uppercase font-bold">历史最高记录</span>
-                        <span className="font-mono font-bold text-yellow-500">{highScore.toLocaleString()}</span>
-                    </div>
-
-                    <div className="flex gap-2">
-                        <button onClick={openLeaderboard} className="flex-1 py-3 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-full transition-all flex items-center justify-center gap-2 text-sm border border-white/10">
-                            <Award size={16} /> 排行榜
-                        </button>
-                        <button onClick={startGame} className="flex-[2] py-3 bg-white hover:bg-slate-200 text-black font-bold rounded-full transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
-                            <RefreshCw size={18} /> 再来一次
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <GameOverModal
+                scoreDisplay={scoreDisplay}
+                highScore={highScore}
+                gameStats={gameStats}
+                uploadStatus={uploadStatus}
+                session={session}
+                onLeaderboardOpen={openLeaderboard}
+                onRestart={startGame}
+                onSync={() => syncData(scoreDisplay, runCoins)}
+                onAuthOpen={() => setShowAuthModal(true)}
+            />
         )}
 
         <canvas ref={canvasRef} className="block w-full h-full cursor-crosshair active:cursor-grabbing" />
