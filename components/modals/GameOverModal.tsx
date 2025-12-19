@@ -92,14 +92,14 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
                 <span className="font-mono text-yellow-400 font-medium">+{gameStats.orbitBonus}</span>
               </div>
               <div className="flex justify-between items-center text-sm group">
-                <span className="text-slate-400 flex items-center gap-2.5 group-hover:text-amber-200 transition-colors"><Coins size={15} className="text-amber-400"/> 金币获得</span>
+                <span className="text-slate-400 flex items-center gap-2.5 group-hover:text-amber-200 transition-colors"><Coins size={15} className="text-amber-400"/> 获得金币</span>
                 <span className="font-mono text-amber-400 font-medium">+{gameStats.coinsCollected}</span>
               </div>
               
               <div className="border-t border-white/5 my-2"></div>
               
               <div className="flex justify-between items-center text-xs text-slate-500">
-                <span className="uppercase tracking-wider">难度倍率奖励</span>
+                <span className="uppercase tracking-wider">难度加成</span>
                 <span className="font-mono text-white/60">x{gameStats.multiplier.toFixed(1)}</span>
               </div>
             </div>
@@ -127,7 +127,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
                   </div>
                 ) : (
                   <button onClick={onAuthOpen} className="group w-full text-center text-xs text-cyan-400 bg-cyan-950/30 py-3 rounded-xl hover:bg-cyan-900/50 transition-all border border-cyan-500/20 hover:border-cyan-400/40 flex items-center justify-center gap-2">
-                    <LogIn size={14} className="group-hover:scale-110 transition-transform" /> 点我登录以同步分数至云端并参与排行榜
+                    <LogIn size={14} className="group-hover:scale-110 transition-transform" /> 点我登录以同步云端并参与排行榜
                   </button>
                 )}
               </div>

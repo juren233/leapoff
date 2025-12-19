@@ -1,5 +1,5 @@
 import React from 'react';
-import { UserCircle, LogOut, Coins, Play, Trophy, ShoppingBag, Loader2, Cloud, CloudOff } from 'lucide-react';
+import { User, LogOut, Coins, Play, Trophy, ShoppingBag, Activity, Wifi, ShieldAlert, Zap, Hexagon } from 'lucide-react';
 import { GAME_VERSION } from '../../constants';
 import { SystemStatus } from '../../types';
 
@@ -25,111 +25,181 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   onShopOpen
 }) => {
   return (
-    <div className="absolute inset-0 z-30 bg-black/40 backdrop-blur-sm animate-in fade-in duration-500 flex flex-col">
-      {/* 1. Scrollable Content Layer */}
-      <div className="flex-1 w-full overflow-y-auto overflow-x-hidden pb-40 lg:pb-0 touch-pan-y overscroll-contain relative [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
+    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center overflow-hidden bg-black/20 text-white font-sans selection:bg-cyan-500/30">
+      
+      {/* --- CSS for Custom Animations --- */}
+      <style>{`
+        @keyframes grid-move {
+          0% { transform: perspective(500px) rotateX(60deg) translateY(0); }
+          100% { transform: perspective(500px) rotateX(60deg) translateY(40px); }
+        }
+        .animate-grid {
+          animation: grid-move 1s linear infinite;
+        }
+        .clip-corner-br {
+          clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+        }
+        .clip-corner-bl {
+          clip-path: polygon(0 0, 100% 0, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+        }
+        .text-stroke-cyan {
+          -webkit-text-stroke: 1px rgba(34, 211, 238, 0.5);
+          color: transparent;
+        }
+      `}</style>
+
+      {/* --- BACKGROUND LAYER --- */}
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        {/* Retro-wave Grid Floor */}
+        <div className="absolute bottom-[-15%] left-[-50%] w-[200%] h-[60%] opacity-20 animate-grid origin-bottom">
+           <div className="w-full h-full bg-[linear-gradient(to_right,rgba(6,182,212,0.3)_1px,transparent_1px),linear-gradient(to_bottom,rgba(6,182,212,0.3)_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:linear-gradient(to_top,black_40%,transparent_100%)]"></div>
+        </div>
         
-        {/* --- Top Bar: Profile & Assets --- */}
-        <div className="w-full flex justify-between items-center p-4 md:p-6 pb-2 safe-area-top sticky top-0 z-10">
-          {/* Left: User Profile */}
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyan-900/40 border border-cyan-500/30 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.2)]">
-              <UserCircle size={18} className="md:w-5 md:h-5 text-cyan-400" />
-            </div>
-            <div className="flex flex-col">
-              {session ? (
-                <>
-                  <span className="text-xs md:text-sm font-bold text-white tracking-wide">{session.user.user_metadata.username || '玩家'}</span>
-                  <button onClick={onLogout} className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-300 uppercase tracking-wider">
-                    <LogOut size={10} /> 退出登录
-                  </button>
-                </>
-              ) : (
-                <button onClick={onAuthOpen} className="text-xs text-cyan-400 font-bold hover:underline">
-                  点击登录
-                </button>
-              )}
-            </div>
-          </div>
+        {/* Vignette & Noise */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.8)_100%)]"></div>
+        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent"></div>
+        <div className="absolute bottom-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent"></div>
+      </div>
 
-          {/* Right: Coins */}
+      {/* --- HUD: TOP LEFT (Profile) --- */}
+      <div className="absolute top-0 left-0 p-6 md:p-10 z-20 flex flex-col items-start gap-4 safe-area-top animate-in slide-in-from-left duration-700">
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <div className="w-10 h-10 md:w-12 md:h-12 border border-cyan-500/30 bg-cyan-950/30 flex items-center justify-center clip-corner-br">
+               <User size={20} className="text-cyan-400" />
+            </div>
+            {/* Tech Decoration */}
+            <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-cyan-500"></div>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] text-cyan-500/60 font-mono tracking-widest uppercase mb-0.5">玩家</span>
+            {session ? (
+              <div className="flex flex-col">
+                <span className="text-sm md:text-lg font-bold text-white tracking-wide uppercase">{session.user.user_metadata.username || '玩家'}</span>
+                <div 
+                  onClick={onLogout}
+                  className="text-[10px] text-red-400 hover:bg-red-500/10 cursor-pointer w-max px-1 py-0.5 mt-1 border border-red-500/20 hover:border-red-500 transition-colors"
+                >
+                  退出登录
+                </div>
+              </div>
+            ) : (
+              <button onClick={onAuthOpen} className="text-sm font-bold text-cyan-400 hover:bg-cyan-400 hover:text-black transition-colors px-2 py-0.5 border border-cyan-400/50">
+                点击登录
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* --- HUD: TOP RIGHT (Resources) --- */}
+      <div className="absolute top-0 right-0 p-6 md:p-10 z-20 flex flex-col items-end gap-1 safe-area-top animate-in slide-in-from-right duration-700">
+        <div className="flex items-center gap-3">
           <div className="flex flex-col items-end">
-            <div className="flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-full border border-yellow-500/30 shadow-[0_0_10px_rgba(234,179,8,0.1)]">
-              <Coins size={14} className="text-yellow-400" />
-              <span className="text-yellow-400 font-mono font-bold text-sm tracking-widest">{totalCoins.toLocaleString()}</span>
-            </div>
-            <span className="text-[10px] text-yellow-500/50 uppercase tracking-widest mt-1 mr-2">金币</span>
+             <span className="text-[10px] text-yellow-500/60 font-mono tracking-widest uppercase">我的金币</span>
+             <span className="text-xl md:text-3xl font-black text-yellow-400 font-mono tracking-tighter drop-shadow-[0_0_10px_rgba(250,204,21,0.4)]">
+               {totalCoins.toLocaleString().padStart(6, '0')}
+             </span>
           </div>
+          <Coins size={24} className="text-yellow-500 opacity-80" />
         </div>
-
-        {/* --- Center Stage: Title & Play --- */}
-        <div className="flex flex-col items-center justify-center py-8 lg:py-16 w-full max-w-[95vw] mx-auto">
-          <div className="relative z-10 text-center mb-8 md:mb-12 px-8 w-full">
-            <h1 className="text-4xl md:text-6xl font-black italic tracking-tighter bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(34,211,238,0.4)] transform -rotate-2 py-2 px-2">
-              跃迁轨道
-            </h1>
-            <div className="flex items-center justify-center gap-3 mt-2 opacity-80">
-              <div className="h-[1px] w-8 md:w-12 bg-gradient-to-r from-transparent to-cyan-500"></div>
-              <span className="text-[10px] md:text-xs font-mono text-cyan-500 tracking-[0.2em]">{GAME_VERSION}</span>
-              <div className="h-[1px] w-8 md:w-12 bg-gradient-to-l from-transparent to-cyan-500"></div>
-            </div>
-          </div>
-
-          <button
-            onClick={onStart}
-            className="group relative w-20 h-20 md:w-24 md:h-24 rounded-full bg-cyan-500/10 border border-cyan-400/50 flex items-center justify-center transition-all hover:scale-110 active:scale-95 hover:bg-cyan-500/20"
-          >
-            {/* Pulse Ring 1 */}
-            <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-ping opacity-20"></div>
-            {/* Pulse Ring 2 */}
-            <div className="absolute -inset-2 rounded-full border border-cyan-500/10 animate-pulse"></div>
-
-            <Play size={28} className="md:w-8 md:h-8 fill-cyan-400 text-cyan-400 ml-1 group-hover:drop-shadow-[0_0_10px_rgba(34,211,238,0.8)] transition-all" />
-          </button>
-          <span className="mt-4 text-xs text-cyan-400/60 font-mono tracking-widest uppercase animate-pulse">开始游戏</span>
-
-          <div className="mt-6 md:mt-8 text-xs text-slate-500 flex flex-col items-center gap-1 opacity-60">
-            <p>长按旋转前进</p>
-            <p>躲避红刺 · 收集光点</p>
-          </div>
-        </div>
+        <div className="w-32 h-[2px] bg-gradient-to-l from-yellow-500/50 to-transparent mt-1"></div>
       </div>
 
-      {/* 2. Fixed Dock Layer */}
-      <div className="absolute bottom-6 left-6 right-6 z-40 lg:bottom-10 lg:left-1/2 lg:-translate-x-1/2 lg:w-auto lg:right-auto pointer-events-none">
-        <div className="
-            pointer-events-auto
-            flex items-end justify-around w-full 
-            lg:w-auto lg:items-center lg:gap-8 lg:px-8 lg:py-4
-            bg-neutral-950/90 backdrop-blur-xl border-t border-white/10 lg:border lg:rounded-full lg:shadow-2xl lg:bg-neutral-900/80
-            pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-4 lg:pb-4 rounded-3xl lg:rounded-full
-            border-x border-b shadow-2xl border-neutral-800
-        ">
-          {/* Leaderboard */}
-          <button onClick={onLeaderboardOpen} className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-white/5 transition-colors group w-16 lg:w-auto">
-            <Trophy size={22} className="text-slate-400 group-hover:text-yellow-400 transition-colors" />
-            <span className="text-[10px] text-slate-500 font-bold group-hover:text-slate-300 lg:hidden">排行榜</span>
-          </button>
-
-          {/* Shop (Center) */}
-          <button onClick={onShopOpen} className="group relative -top-8 lg:top-0 lg:relative">
-            <div className="w-16 h-16 md:w-14 md:h-14 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(124,58,237,0.5)] border-4 border-black group-hover:scale-110 transition-transform">
-              <ShoppingBag size={26} className="text-white" />
-            </div>
-            <span className="text-[10px] text-purple-400 font-bold absolute -bottom-5 left-1/2 -translate-x-1/2 lg:hidden bg-black/80 px-2 py-0.5 rounded-full border border-purple-500/30 whitespace-nowrap z-50">商店</span>
-          </button>
-
-          {/* Status */}
-          <div className="flex flex-col items-center gap-1.5 p-2 rounded-xl w-16 lg:w-auto opacity-80">
-            {systemStatus.status === 'checking' && <Loader2 size={22} className="animate-spin text-slate-500" />}
-            {systemStatus.status === 'ok' && <Cloud size={22} className="text-green-500" />}
-            {systemStatus.status === 'error' && <CloudOff size={22} className="text-red-500" />}
-            <span className="text-[10px] text-slate-500 font-bold lg:hidden">
-              {systemStatus.status === 'checking' ? '上云中' : (systemStatus.status === 'ok' ? '云端数据' : '本地离线')}
-            </span>
-          </div>
+      {/* --- HUD: CENTER (Title & Start) --- */}
+      <div className="relative z-20 flex flex-col items-center justify-center w-full">
+        
+        {/* Title Block */}
+        <div className="relative text-center mb-16 md:mb-24 group cursor-default">
+           {/* Glitch Effect Duplicate */}
+           <h1 className="absolute inset-0 text-6xl md:text-9xl font-black italic tracking-tighter text-cyan-500/20 blur-sm translate-x-1 translate-y-1 animate-pulse select-none">
+             LEAP OFF
+           </h1>
+           <h1 className="relative text-6xl md:text-9xl font-black italic tracking-tighter text-white mix-blend-screen drop-shadow-[0_0_30px_rgba(6,182,212,0.6)] select-none">
+             LEAP <span className="text-cyan-400">OFF</span>
+           </h1>
+           
+           <div className="flex items-center justify-between w-full mt-4 px-2 opacity-60">
+             <span className="text-[10px] font-mono text-cyan-500">{GAME_VERSION}</span>
+             <div className="flex gap-1">
+                <span className="w-8 h-[2px] bg-cyan-500"></span>
+                <span className="w-2 h-[2px] bg-cyan-500/50"></span>
+                <span className="w-2 h-[2px] bg-cyan-500/20"></span>
+             </div>
+             <span className="text-[10px] font-mono text-cyan-500 uppercase">{systemStatus.status === 'ok' ? '云端数据' : '离线模式'}</span>
+           </div>
         </div>
+
+        {/* The Core Trigger */}
+        <button 
+          onClick={onStart}
+          className="group relative w-24 h-24 md:w-32 md:h-32 flex items-center justify-center outline-none"
+        >
+           {/* Rotating Rings */}
+           <div className="absolute inset-0 border border-cyan-500/30 rounded-full animate-[spin_10s_linear_infinite]"></div>
+           <div className="absolute inset-2 border border-dotted border-cyan-400/30 rounded-full animate-[spin_15s_linear_infinite_reverse]"></div>
+           <div className="absolute -inset-4 border border-cyan-900/50 rounded-full opacity-0 group-hover:opacity-100 group-hover:scale-110 transition-all duration-500"></div>
+
+           {/* Core */}
+           <div className="relative z-10 w-full h-full bg-cyan-950/20 backdrop-blur-sm border-2 border-cyan-400/60 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(6,182,212,0.2)] group-hover:bg-cyan-500/20 group-hover:shadow-[0_0_50px_rgba(6,182,212,0.6)] group-hover:border-cyan-300 transition-all duration-300 group-active:scale-95">
+              <Play className="fill-cyan-400 text-cyan-400 w-10 h-10 md:w-14 md:h-14 ml-1.5 group-hover:text-white group-hover:fill-white transition-colors" />
+           </div>
+           
+           {/* Label */}
+           <div className="absolute top-full mt-6 flex flex-col items-center">
+             <div className="w-[1px] h-4 bg-gradient-to-b from-cyan-500 to-transparent mb-2"></div>
+             <span className="text-xs font-bold tracking-[0.3em] text-cyan-400 group-hover:text-white transition-colors uppercase">开始游戏</span>
+           </div>
+        </button>
+
       </div>
+
+      {/* --- HUD: BOTTOM (Tactical Modules) --- */}
+      <div className="absolute bottom-0 w-full p-4 md:p-10 z-20 flex justify-between items-end safe-area-bottom">
+         
+         {/* Left: Leaderboard Module */}
+         <button 
+           onClick={onLeaderboardOpen}
+           className="group flex items-end gap-3 hover:bg-white/5 p-3 pr-6 transition-all clip-corner-bl border-b border-l border-white/10 hover:border-cyan-500/50"
+         >
+           <div className="hidden md:flex flex-col items-center justify-center w-10 h-10 border border-white/10 bg-black/40">
+              <Trophy size={18} className="text-slate-400 group-hover:text-yellow-400 transition-colors" />
+           </div>
+           <div className="flex flex-col items-start">
+             <div className="flex items-center gap-2">
+                <Trophy size={16} className="md:hidden text-slate-400 group-hover:text-yellow-400" />
+                <span className="text-2xl md:text-4xl font-black text-slate-500 group-hover:text-white transition-colors leading-none italic">TOP</span>
+             </div>
+             <span className="text-[9px] font-mono text-cyan-500/60 uppercase tracking-widest group-hover:text-cyan-400">排行榜</span>
+           </div>
+         </button>
+
+         {/* Center Bottom Decoration (Minimal) */}
+         <div className="hidden md:flex flex-col items-center opacity-30 gap-1 pb-2">
+            <div className="w-32 h-1 bg-white/10 mt-1 relative overflow-hidden">
+               <div className="absolute inset-0 bg-cyan-500/50 w-full animate-[shimmer_2s_infinite]"></div>
+            </div>
+         </div>
+
+         {/* Right: Shop Module */}
+         <button 
+           onClick={onShopOpen}
+           className="group flex flex-row-reverse items-end gap-3 hover:bg-white/5 p-3 pl-6 transition-all clip-corner-br border-b border-r border-white/10 hover:border-purple-500/50 text-right"
+         >
+           <div className="hidden md:flex flex-col items-center justify-center w-10 h-10 border border-white/10 bg-black/40">
+              <ShoppingBag size={18} className="text-slate-400 group-hover:text-purple-400 transition-colors" />
+           </div>
+           <div className="flex flex-col items-end">
+             <div className="flex items-center gap-2 flex-row-reverse">
+                <ShoppingBag size={16} className="md:hidden text-slate-400 group-hover:text-purple-400" />
+                <span className="text-2xl md:text-4xl font-black text-slate-500 group-hover:text-white transition-colors leading-none italic">SHOP</span>
+             </div>
+             <span className="text-[9px] font-mono text-purple-500/60 uppercase tracking-widest group-hover:text-purple-400">商店</span>
+           </div>
+         </button>
+
+      </div>
+
     </div>
   );
 };

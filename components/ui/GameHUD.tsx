@@ -69,7 +69,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       {uiGameState === 'PLAYING' && (
         <div className="absolute top-10 left-1/2 -translate-x-1/2 pointer-events-none z-10 flex flex-col items-center animate-in fade-in duration-1000">
           <span className="text-6xl font-black text-white tracking-tighter" style={{ textShadow: '0 0 20px rgba(0,210,255,0.6)' }}>{scoreDisplay.toLocaleString()}</span>
-          <span className="text-xs text-cyan-400/60 font-mono tracking-widest uppercase">Score</span>
+          <span className="text-xs text-cyan-400/60 font-mono tracking-widest uppercase">当前得分</span>
 
           {/* Bonus Time Indicator */}
           <div className={`mt-2 transition-all duration-300 ${isBonusTimeUI ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
