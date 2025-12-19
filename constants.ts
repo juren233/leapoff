@@ -1,4 +1,4 @@
-export const GAME_VERSION = "v8.5.6-UIRefactor";
+export const GAME_VERSION = "v8.5.7-UIRefactor";
 
 export const PLAYER_CONFIG = {
   baseRadius: 100,

@@ -25,7 +25,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   onShopOpen
 }) => {
   return (
-    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center overflow-hidden bg-black/20 text-white font-sans selection:bg-cyan-500/30">
+    // Mobile: Add padding for safe areas. Desktop: Reset padding (md:pt-0, md:pb-0) as layout handles it via p-10.
+    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center overflow-hidden bg-black/20 text-white font-sans selection:bg-cyan-500/30 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] md:pt-0 md:pb-0">
       
       {/* --- CSS for Custom Animations --- */}
       <style>{`
@@ -62,7 +63,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       </div>
 
       {/* --- HUD: TOP LEFT (Profile) --- */}
-      <div className="absolute top-0 left-0 p-6 md:p-10 z-20 flex flex-col items-start gap-4 safe-area-top animate-in slide-in-from-left duration-700">
+      {/* Mobile: use safe-area margins. Desktop: Reset to standard spacing (md:mt-0, md:ml-0). */}
+      <div className="absolute top-0 left-0 p-6 md:p-10 z-20 flex flex-col items-start gap-4 animate-in slide-in-from-left duration-700 mt-[env(safe-area-inset-top)] ml-[env(safe-area-inset-left)] md:mt-0 md:ml-0">
         <div className="flex items-center gap-3">
           <div className="relative">
             <div className="w-10 h-10 md:w-12 md:h-12 border border-cyan-500/30 bg-cyan-950/30 flex items-center justify-center clip-corner-br">
@@ -93,7 +95,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       </div>
 
       {/* --- HUD: TOP RIGHT (Resources) --- */}
-      <div className="absolute top-0 right-0 p-6 md:p-10 z-20 flex flex-col items-end gap-1 safe-area-top animate-in slide-in-from-right duration-700">
+      {/* Mobile: use safe-area margins. Desktop: Reset to standard spacing. */}
+      <div className="absolute top-0 right-0 p-6 md:p-10 z-20 flex flex-col items-end gap-1 animate-in slide-in-from-right duration-700 mt-[env(safe-area-inset-top)] mr-[env(safe-area-inset-right)] md:mt-0 md:mr-0">
         <div className="flex items-center gap-3">
           <div className="flex flex-col items-end">
              <span className="text-[10px] text-yellow-500/60 font-mono tracking-widest uppercase">我的金币</span>
@@ -155,7 +158,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       </div>
 
       {/* --- HUD: BOTTOM (Tactical Modules) --- */}
-      <div className="absolute bottom-0 w-full p-4 md:p-10 z-20 flex justify-between items-end safe-area-bottom">
+      {/* Mobile: Extra bottom padding calculation. Desktop: Reset to standard padding (md:pb-10). */}
+      <div className="absolute bottom-0 w-full px-4 md:px-10 z-20 flex justify-between items-end pb-[max(2.5rem,calc(env(safe-area-inset-bottom)+1.5rem))] md:pb-10">
          
          {/* Left: Leaderboard Module */}
          <button 

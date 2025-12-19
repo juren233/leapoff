@@ -26,7 +26,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   return (
     <>
       {/* Buff HUD */}
-      <div className={`absolute top-14 left-4 flex flex-col gap-3 pointer-events-none z-20 transition-opacity duration-1000 ${uiGameState !== 'PLAYING' ? 'opacity-0' : 'opacity-100'}`}>
+      {/* Mobile: Pushed down for safe area. Desktop (md): Standard top-14 left-10. */}
+      <div className={`absolute top-[max(4rem,calc(env(safe-area-inset-top)+3.5rem))] md:top-14 left-4 md:left-10 flex flex-col gap-3 pointer-events-none z-20 transition-opacity duration-1000 ${uiGameState !== 'PLAYING' ? 'opacity-0' : 'opacity-100'}`}>
         <div className={`flex items-center gap-2 transition-all duration-300 ${buffs.shield > 0 ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
           <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500 shadow-[0_0_10px_#00ff00]">
             <Shield size={16} className="text-green-400" />
@@ -48,7 +49,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       </div>
 
       {/* Coin HUD (Left Top) */}
-      <div className="absolute top-4 left-4 z-30 pointer-events-none">
+      {/* Mobile: Safe area margins. Desktop: Standard top-6 (or aligned) left-10. */}
+      <div className="absolute top-[max(1rem,env(safe-area-inset-top))] md:top-6 left-[max(1rem,env(safe-area-inset-left))] md:left-10 z-30 pointer-events-none">
         <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-full px-3 py-1.5 border border-yellow-500/30 mb-2">
           <Coins size={16} className="text-yellow-400" />
           <span className="text-yellow-100 font-mono font-bold text-sm">{(totalCoins + runCoins).toLocaleString()}</span>
@@ -56,8 +58,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       </div>
 
       {/* Orbit Counter HUD */}
+      {/* Mobile: Safe area margins. Desktop: Standard top-6 right-10. */}
       {(uiGameState === 'PLAYING') && (
-        <div className="absolute top-4 right-4 flex items-center gap-2 pointer-events-none z-20">
+        <div className="absolute top-[max(1rem,env(safe-area-inset-top))] md:top-6 right-[max(1rem,env(safe-area-inset-right))] md:right-10 flex items-center gap-2 pointer-events-none z-20">
           <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500 shadow-[0_0_10px_#00d2ff]">
             <RotateCw size={16} className="text-blue-400" />
           </div>
@@ -66,8 +69,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       )}
 
       {/* Score HUD */}
+      {/* Mobile: Pushed down deeper. Desktop: Standard positioning. */}
       {uiGameState === 'PLAYING' && (
-        <div className="absolute top-10 left-1/2 -translate-x-1/2 pointer-events-none z-10 flex flex-col items-center animate-in fade-in duration-1000">
+        <div className="absolute top-[max(3.5rem,calc(env(safe-area-inset-top)+2rem))] md:top-24 left-1/2 -translate-x-1/2 pointer-events-none z-10 flex flex-col items-center animate-in fade-in duration-1000">
           <span className="text-6xl font-black text-white tracking-tighter" style={{ textShadow: '0 0 20px rgba(0,210,255,0.6)' }}>{scoreDisplay.toLocaleString()}</span>
           <span className="text-xs text-cyan-400/60 font-mono tracking-widest uppercase">当前得分</span>
 
