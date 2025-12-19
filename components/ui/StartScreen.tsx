@@ -63,30 +63,31 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       </div>
 
       {/* --- HUD: TOP LEFT (Profile) --- */}
-      {/* Mobile: use safe-area margins. Desktop: Reset to standard spacing (md:mt-0, md:ml-0). */}
-      <div className="absolute top-0 left-0 p-6 md:p-10 z-20 flex flex-col items-start gap-4 animate-in slide-in-from-left duration-700 mt-[env(safe-area-inset-top)] ml-[env(safe-area-inset-left)] md:mt-0 md:ml-0">
-        <div className="flex items-center gap-3">
+      {/* Mobile: Smaller padding (p-4), Desktop: p-10 */}
+      <div className="absolute top-0 left-0 p-4 md:p-10 z-20 flex flex-col items-start gap-3 md:gap-4 animate-in slide-in-from-left duration-700 mt-[env(safe-area-inset-top)] ml-[env(safe-area-inset-left)] md:mt-0 md:ml-0">
+        <div className="flex items-center gap-2 md:gap-3">
           <div className="relative">
-            <div className="w-10 h-10 md:w-12 md:h-12 border border-cyan-500/30 bg-cyan-950/30 flex items-center justify-center clip-corner-br">
-               <User size={20} className="text-cyan-400" />
+            {/* Mobile: w-9 h-9, Desktop: w-12 h-12 */}
+            <div className="w-9 h-9 md:w-12 md:h-12 border border-cyan-500/30 bg-cyan-950/30 flex items-center justify-center clip-corner-br">
+               <User size={16} className="text-cyan-400 md:w-5 md:h-5" />
             </div>
             {/* Tech Decoration */}
-            <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-cyan-500"></div>
+            <div className="absolute -bottom-1 -right-1 w-1.5 h-1.5 md:w-2 md:h-2 bg-cyan-500"></div>
           </div>
           <div className="flex flex-col">
-            <span className="text-[10px] text-cyan-500/60 font-mono tracking-widest uppercase mb-0.5">玩家</span>
+            <span className="text-[9px] md:text-[10px] text-cyan-500/60 font-mono tracking-widest uppercase mb-0.5">玩家</span>
             {session ? (
               <div className="flex flex-col">
-                <span className="text-sm md:text-lg font-bold text-white tracking-wide uppercase">{session.user.user_metadata.username || '玩家'}</span>
+                <span className="text-xs md:text-lg font-bold text-white tracking-wide uppercase">{session.user.user_metadata.username || '玩家'}</span>
                 <div 
                   onClick={onLogout}
-                  className="text-[10px] text-red-400 hover:bg-red-500/10 cursor-pointer w-max px-1 py-0.5 mt-1 border border-red-500/20 hover:border-red-500 transition-colors"
+                  className="text-[9px] md:text-[10px] text-red-400 hover:bg-red-500/10 cursor-pointer w-max px-1 py-0.5 mt-1 border border-red-500/20 hover:border-red-500 transition-colors"
                 >
                   退出登录
                 </div>
               </div>
             ) : (
-              <button onClick={onAuthOpen} className="text-sm font-bold text-cyan-400 hover:bg-cyan-400 hover:text-black transition-colors px-2 py-0.5 border border-cyan-400/50">
+              <button onClick={onAuthOpen} className="text-xs md:text-sm font-bold text-cyan-400 hover:bg-cyan-400 hover:text-black transition-colors px-2 py-0.5 border border-cyan-400/50">
                 点击登录
               </button>
             )}
@@ -95,48 +96,50 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       </div>
 
       {/* --- HUD: TOP RIGHT (Resources) --- */}
-      {/* Mobile: use safe-area margins. Desktop: Reset to standard spacing. */}
-      <div className="absolute top-0 right-0 p-6 md:p-10 z-20 flex flex-col items-end gap-1 animate-in slide-in-from-right duration-700 mt-[env(safe-area-inset-top)] mr-[env(safe-area-inset-right)] md:mt-0 md:mr-0">
-        <div className="flex items-center gap-3">
+      <div className="absolute top-0 right-0 p-4 md:p-10 z-20 flex flex-col items-end gap-1 animate-in slide-in-from-right duration-700 mt-[env(safe-area-inset-top)] mr-[env(safe-area-inset-right)] md:mt-0 md:mr-0">
+        <div className="flex items-center gap-2 md:gap-3">
           <div className="flex flex-col items-end">
-             <span className="text-[10px] text-yellow-500/60 font-mono tracking-widest uppercase">我的金币</span>
-             <span className="text-xl md:text-3xl font-black text-yellow-400 font-mono tracking-tighter drop-shadow-[0_0_10px_rgba(250,204,21,0.4)]">
+             <span className="text-[9px] md:text-[10px] text-yellow-500/60 font-mono tracking-widest uppercase">我的金币</span>
+             {/* Mobile: text-lg, Desktop: text-3xl */}
+             <span className="text-lg md:text-3xl font-black text-yellow-400 font-mono tracking-tighter drop-shadow-[0_0_10px_rgba(250,204,21,0.4)]">
                {totalCoins.toLocaleString().padStart(6, '0')}
              </span>
           </div>
-          <Coins size={24} className="text-yellow-500 opacity-80" />
+          <Coins size={20} className="text-yellow-500 opacity-80 md:w-6 md:h-6" />
         </div>
-        <div className="w-32 h-[2px] bg-gradient-to-l from-yellow-500/50 to-transparent mt-1"></div>
+        <div className="w-24 md:w-32 h-[1px] md:h-[2px] bg-gradient-to-l from-yellow-500/50 to-transparent mt-1"></div>
       </div>
 
       {/* --- HUD: CENTER (Title & Start) --- */}
       <div className="relative z-20 flex flex-col items-center justify-center w-full">
         
         {/* Title Block */}
-        <div className="relative text-center mb-16 md:mb-24 group cursor-default">
+        <div className="relative text-center mb-10 md:mb-24 group cursor-default">
            {/* Glitch Effect Duplicate */}
-           <h1 className="absolute inset-0 text-6xl md:text-9xl font-black italic tracking-tighter text-cyan-500/20 blur-sm translate-x-1 translate-y-1 animate-pulse select-none">
+           {/* Mobile: text-5xl, Desktop: text-9xl */}
+           <h1 className="absolute inset-0 text-5xl md:text-9xl font-black italic tracking-tighter text-cyan-500/20 blur-sm translate-x-1 translate-y-1 animate-pulse select-none">
              LEAP OFF
            </h1>
-           <h1 className="relative text-6xl md:text-9xl font-black italic tracking-tighter text-white mix-blend-screen drop-shadow-[0_0_30px_rgba(6,182,212,0.6)] select-none">
+           <h1 className="relative text-5xl md:text-9xl font-black italic tracking-tighter text-white mix-blend-screen drop-shadow-[0_0_30px_rgba(6,182,212,0.6)] select-none">
              LEAP <span className="text-cyan-400">OFF</span>
            </h1>
            
-           <div className="flex items-center justify-between w-full mt-4 px-2 opacity-60">
-             <span className="text-[10px] font-mono text-cyan-500">{GAME_VERSION}</span>
+           <div className="flex items-center justify-between w-full mt-2 md:mt-4 px-2 opacity-60">
+             <span className="text-[8px] md:text-[10px] font-mono text-cyan-500">{GAME_VERSION}</span>
              <div className="flex gap-1">
-                <span className="w-8 h-[2px] bg-cyan-500"></span>
-                <span className="w-2 h-[2px] bg-cyan-500/50"></span>
-                <span className="w-2 h-[2px] bg-cyan-500/20"></span>
+                <span className="w-6 md:w-8 h-[2px] bg-cyan-500"></span>
+                <span className="w-1.5 md:w-2 h-[2px] bg-cyan-500/50"></span>
+                <span className="w-1.5 md:w-2 h-[2px] bg-cyan-500/20"></span>
              </div>
-             <span className="text-[10px] font-mono text-cyan-500 uppercase">{systemStatus.status === 'ok' ? '云端数据' : '离线模式'}</span>
+             <span className="text-[8px] md:text-[10px] font-mono text-cyan-500 uppercase">{systemStatus.status === 'ok' ? '云端数据' : '离线模式'}</span>
            </div>
         </div>
 
         {/* The Core Trigger */}
         <button 
           onClick={onStart}
-          className="group relative w-24 h-24 md:w-32 md:h-32 flex items-center justify-center outline-none"
+          // Mobile: w-20 h-20, Desktop: w-32 h-32
+          className="group relative w-20 h-20 md:w-32 md:h-32 flex items-center justify-center outline-none"
         >
            {/* Rotating Rings */}
            <div className="absolute inset-0 border border-cyan-500/30 rounded-full animate-[spin_10s_linear_infinite]"></div>
@@ -145,36 +148,37 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
            {/* Core */}
            <div className="relative z-10 w-full h-full bg-cyan-950/20 backdrop-blur-sm border-2 border-cyan-400/60 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(6,182,212,0.2)] group-hover:bg-cyan-500/20 group-hover:shadow-[0_0_50px_rgba(6,182,212,0.6)] group-hover:border-cyan-300 transition-all duration-300 group-active:scale-95">
-              <Play className="fill-cyan-400 text-cyan-400 w-10 h-10 md:w-14 md:h-14 ml-1.5 group-hover:text-white group-hover:fill-white transition-colors" />
+              <Play className="fill-cyan-400 text-cyan-400 w-8 h-8 md:w-14 md:h-14 ml-1 md:ml-1.5 group-hover:text-white group-hover:fill-white transition-colors" />
            </div>
            
            {/* Label */}
-           <div className="absolute top-full mt-6 flex flex-col items-center">
-             <div className="w-[1px] h-4 bg-gradient-to-b from-cyan-500 to-transparent mb-2"></div>
-             <span className="text-xs font-bold tracking-[0.3em] text-cyan-400 group-hover:text-white transition-colors uppercase">开始游戏</span>
+           <div className="absolute top-full mt-4 md:mt-6 flex flex-col items-center">
+             <div className="w-[1px] h-3 md:h-4 bg-gradient-to-b from-cyan-500 to-transparent mb-1 md:mb-2"></div>
+             <span className="text-[10px] md:text-xs font-bold tracking-[0.3em] text-cyan-400 group-hover:text-white transition-colors uppercase">开始游戏</span>
            </div>
         </button>
 
       </div>
 
       {/* --- HUD: BOTTOM (Tactical Modules) --- */}
-      {/* Mobile: Extra bottom padding calculation. Desktop: Reset to standard padding (md:pb-10). */}
+      {/* Mobile: px-4, Desktop: px-10 */}
       <div className="absolute bottom-0 w-full px-4 md:px-10 z-20 flex justify-between items-end pb-[max(2.5rem,calc(env(safe-area-inset-bottom)+1.5rem))] md:pb-10">
          
          {/* Left: Leaderboard Module */}
          <button 
            onClick={onLeaderboardOpen}
-           className="group flex items-end gap-3 hover:bg-white/5 p-3 pr-6 transition-all clip-corner-bl border-b border-l border-white/10 hover:border-cyan-500/50"
+           className="group flex items-end gap-2 md:gap-3 hover:bg-white/5 p-2 md:p-3 pr-4 md:pr-6 transition-all clip-corner-bl border-b border-l border-white/10 hover:border-cyan-500/50"
          >
            <div className="hidden md:flex flex-col items-center justify-center w-10 h-10 border border-white/10 bg-black/40">
               <Trophy size={18} className="text-slate-400 group-hover:text-yellow-400 transition-colors" />
            </div>
            <div className="flex flex-col items-start">
-             <div className="flex items-center gap-2">
-                <Trophy size={16} className="md:hidden text-slate-400 group-hover:text-yellow-400" />
-                <span className="text-2xl md:text-4xl font-black text-slate-500 group-hover:text-white transition-colors leading-none italic">TOP</span>
+             <div className="flex items-center gap-1.5 md:gap-2">
+                <Trophy size={14} className="md:hidden text-slate-400 group-hover:text-yellow-400" />
+                {/* Mobile: text-xl, Desktop: text-4xl */}
+                <span className="text-xl md:text-4xl font-black text-slate-500 group-hover:text-white transition-colors leading-none italic">TOP</span>
              </div>
-             <span className="text-[9px] font-mono text-cyan-500/60 uppercase tracking-widest group-hover:text-cyan-400">排行榜</span>
+             <span className="text-[8px] md:text-[9px] font-mono text-cyan-500/60 uppercase tracking-widest group-hover:text-cyan-400">排行榜</span>
            </div>
          </button>
 
@@ -188,17 +192,17 @@ export const StartScreen: React.FC<StartScreenProps> = ({
          {/* Right: Shop Module */}
          <button 
            onClick={onShopOpen}
-           className="group flex flex-row-reverse items-end gap-3 hover:bg-white/5 p-3 pl-6 transition-all clip-corner-br border-b border-r border-white/10 hover:border-purple-500/50 text-right"
+           className="group flex flex-row-reverse items-end gap-2 md:gap-3 hover:bg-white/5 p-2 md:p-3 pl-4 md:pl-6 transition-all clip-corner-br border-b border-r border-white/10 hover:border-purple-500/50 text-right"
          >
            <div className="hidden md:flex flex-col items-center justify-center w-10 h-10 border border-white/10 bg-black/40">
               <ShoppingBag size={18} className="text-slate-400 group-hover:text-purple-400 transition-colors" />
            </div>
            <div className="flex flex-col items-end">
-             <div className="flex items-center gap-2 flex-row-reverse">
-                <ShoppingBag size={16} className="md:hidden text-slate-400 group-hover:text-purple-400" />
-                <span className="text-2xl md:text-4xl font-black text-slate-500 group-hover:text-white transition-colors leading-none italic">SHOP</span>
+             <div className="flex items-center gap-1.5 md:gap-2 flex-row-reverse">
+                <ShoppingBag size={14} className="md:hidden text-slate-400 group-hover:text-purple-400" />
+                <span className="text-xl md:text-4xl font-black text-slate-500 group-hover:text-white transition-colors leading-none italic">SHOP</span>
              </div>
-             <span className="text-[9px] font-mono text-purple-500/60 uppercase tracking-widest group-hover:text-purple-400">商店</span>
+             <span className="text-[8px] md:text-[9px] font-mono text-purple-500/60 uppercase tracking-widest group-hover:text-purple-400">商店</span>
            </div>
          </button>
 
