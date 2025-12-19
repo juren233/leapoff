@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, UploadCloud, Cloud, CloudOff, Coins, ShoppingBag, LogOut, UserCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.3.1-ScrollFix";
+const GAME_VERSION = "v8.3.2-TouchFix";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -152,6 +152,22 @@ export const LeapOrbitGame: React.FC = () => {
     // Keep ref in sync with state
     totalCoinsRef.current = totalCoins;
   }, [totalCoins]);
+  
+  // --- Mobile Scroll Fix Logic ---
+  // When in 'START' or 'GAMEOVER', we allow touch actions (scrolling).
+  // When in 'PLAYING' or 'DYING', we disable touch actions (prevent accidental scrolling/zooming while tapping).
+  useEffect(() => {
+      const body = document.body;
+      if (uiGameState === 'START' || uiGameState === 'GAMEOVER') {
+          body.style.touchAction = 'auto';
+      } else {
+          body.style.touchAction = 'none';
+      }
+      
+      return () => {
+          body.style.touchAction = 'none'; // Revert to safe default on unmount
+      };
+  }, [uiGameState]);
 
   // Fetch User Data from Cloud (Source of Truth)
   // Wrapped in useCallback to be safe for dependency arrays if needed
