@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, UploadCloud, Cloud, CloudOff, Coins, ShoppingBag, LogOut, UserCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.2.2-DashboardUI";
+const GAME_VERSION = "v8.3.0-MobileFix";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -874,8 +874,26 @@ export const LeapOrbitGame: React.FC = () => {
     player.trail.push({ x: player.x, y: player.y });
     if (player.trail.length > PLAYER_CONFIG.trailLength) player.trail.shift();
 
+    // --- IMPROVED CAMERA LOGIC FOR MOBILE ---
     const { width, height } = dimensions.current;
-    const targetZoom = Math.max(0.35, Math.min(1.0, Math.min(width, height) / ((player.radius * 2) + (hasDash ? 350 : 200))));
+    
+    // Determine the viewport dimension that restricts the view the most
+    const fitDimension = Math.min(width, height);
+    
+    // Calculate how much space we need to show the player and a bit of margin
+    // We want to ensure we see the player, and enough context around them
+    // Base safety distance is roughly the player radius * 2 (diameter) + extra padding
+    const requiredViewDiameter = (player.radius * 2) + (hasDash ? 400 : 300);
+    
+    // Calculate zoom based on fitting that diameter into the smallest screen dimension
+    // We clamp it: 
+    // - Max 1.2 (Don't zoom in too close)
+    // - Min 0.3 (or 0.25 on very small screens) to allow seeing far out
+    const targetZoom = Math.max(
+        width < 600 ? 0.25 : 0.35, // Allow slightly more zoom out on mobile portrait
+        Math.min(1.2, fitDimension / requiredViewDiameter)
+    );
+
     cameraRef.current.x += (player.x * 0.5 - cameraRef.current.x) * 0.08;
     cameraRef.current.y += (player.y * 0.5 - cameraRef.current.y) * 0.08;
     cameraRef.current.zoom += (targetZoom - cameraRef.current.zoom) * 0.05;
@@ -1173,109 +1191,109 @@ export const LeapOrbitGame: React.FC = () => {
 
         {/* Start Screen (Dashboard Redesign) */}
         {uiGameState === 'START' && (
-            <div className="absolute inset-0 z-30 flex flex-col bg-black/40 backdrop-blur-sm animate-in fade-in duration-500">
-                
-                {/* --- Top Bar: Profile & Assets --- */}
-                <div className="w-full flex justify-between items-center p-6 pb-2 safe-area-top">
-                    {/* Left: User Profile */}
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-cyan-900/40 border border-cyan-500/30 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.2)]">
-                             <UserCircle size={20} className="text-cyan-400" />
-                        </div>
-                        <div className="flex flex-col">
-                            {session ? (
-                                <>
-                                    <span className="text-sm font-bold text-white tracking-wide">{session.user.user_metadata.username || '玩家'}</span>
-                                    <button onClick={handleLogout} className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-300 uppercase tracking-wider">
-                                        <LogOut size={10} /> 退出登录
-                                    </button>
-                                </>
-                            ) : (
-                                <button onClick={() => setShowAuthModal(true)} className="text-xs text-cyan-400 font-bold hover:underline">
-                                    点击登录
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Right: Coins */}
-                    <div className="flex flex-col items-end">
-                        <div className="flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-full border border-yellow-500/30 shadow-[0_0_10px_rgba(234,179,8,0.1)]">
-                             <Coins size={14} className="text-yellow-400" />
-                             <span className="text-yellow-400 font-mono font-bold text-sm tracking-widest">{totalCoins.toLocaleString()}</span>
-                        </div>
-                        <span className="text-[10px] text-yellow-500/50 uppercase tracking-widest mt-1 mr-2">金币</span>
-                    </div>
-                </div>
-
-                {/* --- Center Stage: Title & Play --- */}
-                <div className="flex-1 flex flex-col items-center justify-center relative">
-                    <div className="relative z-10 text-center mb-12">
-                        <h1 className="text-6xl font-black italic tracking-tighter bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(34,211,238,0.4)] transform -rotate-2">
-                            跃迁轨道
-                        </h1>
-                        <div className="flex items-center justify-center gap-3 mt-2 opacity-80">
-                            <div className="h-[1px] w-12 bg-gradient-to-r from-transparent to-cyan-500"></div>
-                            <span className="text-xs font-mono text-cyan-500 tracking-[0.2em]">{GAME_VERSION}</span>
-                            <div className="h-[1px] w-12 bg-gradient-to-l from-transparent to-cyan-500"></div>
-                        </div>
-                    </div>
-
-                    <button 
-                        onClick={startGame} 
-                        className="group relative w-24 h-24 rounded-full bg-cyan-500/10 border border-cyan-400/50 flex items-center justify-center transition-all hover:scale-110 active:scale-95 hover:bg-cyan-500/20"
-                    >
-                         {/* Pulse Ring 1 */}
-                         <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-ping opacity-20"></div>
-                         {/* Pulse Ring 2 */}
-                         <div className="absolute -inset-2 rounded-full border border-cyan-500/10 animate-pulse"></div>
-                         
-                         <Play size={32} className="fill-cyan-400 text-cyan-400 ml-1 group-hover:drop-shadow-[0_0_10px_rgba(34,211,238,0.8)] transition-all" />
-                    </button>
-                    <span className="mt-4 text-xs text-cyan-400/60 font-mono tracking-widest uppercase animate-pulse">开始游戏</span>
-                    
-                    <div className="mt-8 text-xs text-slate-500 flex flex-col items-center gap-1 opacity-60">
-                         <p>长按旋转前进</p>
-                         <p>躲避红刺 · 收集光点</p>
-                    </div>
-                </div>
-
-                {/* --- Bottom Dock: Navigation --- */}
-                <div className="w-full px-6 pb-8 safe-area-bottom">
-                    <div className="flex items-center justify-around bg-neutral-900/80 backdrop-blur-xl border border-white/5 rounded-2xl p-2 shadow-2xl mx-auto max-w-md">
-                        {/* Leaderboard */}
-                        <button onClick={openLeaderboard} className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-white/5 transition-colors group w-20">
-                            <Trophy size={20} className="text-slate-400 group-hover:text-yellow-400 transition-colors" />
-                            <span className="text-[10px] text-slate-500 font-bold group-hover:text-slate-300">排行榜</span>
-                        </button>
-
-                        {/* Shop (Center Highlight) */}
-                        <button onClick={openShop} className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-white/5 transition-colors group w-20 relative -top-6">
-                            <div className="w-14 h-14 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-[0_5px_15px_rgba(124,58,237,0.4)] border border-white/10 group-hover:scale-110 transition-transform">
-                                <ShoppingBag size={22} className="text-white" />
+            <div className="absolute inset-0 z-30 flex flex-col bg-black/40 backdrop-blur-sm animate-in fade-in duration-500 overflow-y-auto">
+                <div className="min-h-full flex flex-col">
+                    {/* --- Top Bar: Profile & Assets --- */}
+                    <div className="w-full flex justify-between items-center p-4 md:p-6 pb-2 safe-area-top">
+                        {/* Left: User Profile */}
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyan-900/40 border border-cyan-500/30 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.2)]">
+                                <UserCircle size={18} className="md:w-5 md:h-5 text-cyan-400" />
                             </div>
-                            <span className="text-[10px] text-purple-400 font-bold mt-1">商店</span>
-                        </button>
+                            <div className="flex flex-col">
+                                {session ? (
+                                    <>
+                                        <span className="text-xs md:text-sm font-bold text-white tracking-wide">{session.user.user_metadata.username || '玩家'}</span>
+                                        <button onClick={handleLogout} className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-300 uppercase tracking-wider">
+                                            <LogOut size={10} /> 退出登录
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button onClick={() => setShowAuthModal(true)} className="text-xs text-cyan-400 font-bold hover:underline">
+                                        点击登录
+                                    </button>
+                                )}
+                            </div>
+                        </div>
 
-                         {/* Status (Cloud Connection Indicator) */}
-                         <div className="flex flex-col items-center gap-1 p-3 rounded-xl w-20 opacity-50">
-                            {systemStatus.status === 'checking' && <Loader2 size={20} className="animate-spin text-slate-500" />}
-                            {systemStatus.status === 'ok' && <Cloud size={20} className="text-green-500" />}
-                            {systemStatus.status === 'error' && <CloudOff size={20} className="text-red-500" />}
-                            <span className="text-[10px] text-slate-500 font-bold">
-                                {systemStatus.status === 'checking' ? '上云中…' : (systemStatus.status === 'ok' ? '已连接云' : '本地离线')}
-                            </span>
+                        {/* Right: Coins */}
+                        <div className="flex flex-col items-end">
+                            <div className="flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-full border border-yellow-500/30 shadow-[0_0_10px_rgba(234,179,8,0.1)]">
+                                <Coins size={14} className="text-yellow-400" />
+                                <span className="text-yellow-400 font-mono font-bold text-sm tracking-widest">{totalCoins.toLocaleString()}</span>
+                            </div>
+                            <span className="text-[10px] text-yellow-500/50 uppercase tracking-widest mt-1 mr-2">金币</span>
+                        </div>
+                    </div>
+
+                    {/* --- Center Stage: Title & Play --- */}
+                    <div className="flex-1 flex flex-col items-center justify-center relative py-8">
+                        <div className="relative z-10 text-center mb-8 md:mb-12 px-4">
+                            <h1 className="text-4xl md:text-6xl font-black italic tracking-tighter bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(34,211,238,0.4)] transform -rotate-2">
+                                跃迁轨道
+                            </h1>
+                            <div className="flex items-center justify-center gap-3 mt-2 opacity-80">
+                                <div className="h-[1px] w-8 md:w-12 bg-gradient-to-r from-transparent to-cyan-500"></div>
+                                <span className="text-[10px] md:text-xs font-mono text-cyan-500 tracking-[0.2em]">{GAME_VERSION}</span>
+                                <div className="h-[1px] w-8 md:w-12 bg-gradient-to-l from-transparent to-cyan-500"></div>
+                            </div>
+                        </div>
+
+                        <button 
+                            onClick={startGame} 
+                            className="group relative w-20 h-20 md:w-24 md:h-24 rounded-full bg-cyan-500/10 border border-cyan-400/50 flex items-center justify-center transition-all hover:scale-110 active:scale-95 hover:bg-cyan-500/20"
+                        >
+                            {/* Pulse Ring 1 */}
+                            <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-ping opacity-20"></div>
+                            {/* Pulse Ring 2 */}
+                            <div className="absolute -inset-2 rounded-full border border-cyan-500/10 animate-pulse"></div>
+                            
+                            <Play size={28} className="md:w-8 md:h-8 fill-cyan-400 text-cyan-400 ml-1 group-hover:drop-shadow-[0_0_10px_rgba(34,211,238,0.8)] transition-all" />
+                        </button>
+                        <span className="mt-4 text-xs text-cyan-400/60 font-mono tracking-widest uppercase animate-pulse">开始游戏</span>
+                        
+                        <div className="mt-6 md:mt-8 text-xs text-slate-500 flex flex-col items-center gap-1 opacity-60">
+                            <p>长按旋转前进</p>
+                            <p>躲避红刺 · 收集光点</p>
+                        </div>
+                    </div>
+
+                    {/* --- Bottom Dock: Navigation --- */}
+                    <div className="w-full px-4 md:px-6 pb-6 md:pb-8 safe-area-bottom">
+                        <div className="flex items-center justify-around bg-neutral-900/80 backdrop-blur-xl border border-white/5 rounded-2xl p-2 shadow-2xl mx-auto max-w-sm md:max-w-md">
+                            {/* Leaderboard */}
+                            <button onClick={openLeaderboard} className="flex flex-col items-center gap-1 p-2 md:p-3 rounded-xl hover:bg-white/5 transition-colors group w-16 md:w-20">
+                                <Trophy size={18} className="md:w-5 md:h-5 text-slate-400 group-hover:text-yellow-400 transition-colors" />
+                                <span className="text-[9px] md:text-[10px] text-slate-500 font-bold group-hover:text-slate-300">排行榜</span>
+                            </button>
+
+                            {/* Shop (Center Highlight) */}
+                            <button onClick={openShop} className="flex flex-col items-center gap-1 p-2 md:p-3 rounded-xl hover:bg-white/5 transition-colors group w-16 md:w-20 relative -top-5 md:-top-6">
+                                <div className="w-12 h-12 md:w-14 md:h-14 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-[0_5px_15px_rgba(124,58,237,0.4)] border border-white/10 group-hover:scale-110 transition-transform">
+                                    <ShoppingBag size={20} className="md:w-[22px] md:h-[22px] text-white" />
+                                </div>
+                                <span className="text-[9px] md:text-[10px] text-purple-400 font-bold mt-1">商店</span>
+                            </button>
+
+                            {/* Status (Cloud Connection Indicator) */}
+                            <div className="flex flex-col items-center gap-1 p-2 md:p-3 rounded-xl w-16 md:w-20 opacity-50">
+                                {systemStatus.status === 'checking' && <Loader2 size={18} className="md:w-5 md:h-5 animate-spin text-slate-500" />}
+                                {systemStatus.status === 'ok' && <Cloud size={18} className="md:w-5 md:h-5 text-green-500" />}
+                                {systemStatus.status === 'error' && <CloudOff size={18} className="md:w-5 md:h-5 text-red-500" />}
+                                <span className="text-[9px] md:text-[10px] text-slate-500 font-bold">
+                                    {systemStatus.status === 'checking' ? '上云中…' : (systemStatus.status === 'ok' ? '已连接云' : '本地离线')}
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
-
             </div>
         )}
 
         {/* Auth Modal */}
         {showAuthModal && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
-                <div className="w-full max-w-xs bg-neutral-900 border border-cyan-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(6,182,212,0.15)] relative">
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in overflow-y-auto">
+                <div className="w-full max-w-xs bg-neutral-900 border border-cyan-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(6,182,212,0.15)] relative my-auto">
                     <button onClick={() => setShowAuthModal(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20}/></button>
                     {/* Updated Title */}
                     <h2 className="text-xl font-bold text-white mb-6 text-center">{authMode === 'login' ? '登录' : '注册'}</h2>
@@ -1319,7 +1337,7 @@ export const LeapOrbitGame: React.FC = () => {
         {/* Leaderboard Modal */}
         {showLeaderboard && (
              <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
-                <div className="w-full max-w-sm bg-neutral-900 border border-yellow-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(234,179,8,0.15)] relative h-[70vh] flex flex-col">
+                <div className="w-full max-w-sm bg-neutral-900 border border-yellow-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(234,179,8,0.15)] relative h-[70vh] max-h-[600px] flex flex-col">
                     <button onClick={() => setShowLeaderboard(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20}/></button>
                     <div className="flex items-center justify-center gap-2 mb-6">
                         <Trophy className="text-yellow-500" size={24} />
@@ -1372,8 +1390,8 @@ export const LeapOrbitGame: React.FC = () => {
 
         {/* Game Over Screen */}
         {uiGameState === 'GAMEOVER' && (
-            <div className="absolute inset-0 flex items-center justify-center z-30 bg-red-900/20 backdrop-blur-sm">
-                <div className="text-center p-6 border border-red-500/30 rounded-2xl bg-black/90 shadow-2xl w-80 mx-4 transform transition-all animate-in fade-in zoom-in duration-300">
+            <div className="absolute inset-0 flex items-center justify-center z-30 bg-red-900/20 backdrop-blur-sm p-4 overflow-y-auto">
+                <div className="text-center p-6 border border-red-500/30 rounded-2xl bg-black/90 shadow-2xl w-full max-w-sm mx-auto transform transition-all animate-in fade-in zoom-in duration-300 max-h-[90vh] overflow-y-auto custom-scrollbar">
                     <div className="inline-block p-3 rounded-full bg-red-500/20 mb-4 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]">
                         <Skull size={32} className="text-red-500" />
                     </div>
