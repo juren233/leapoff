@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, UploadCloud, Cloud, CloudOff, Coins, ShoppingBag, LogOut, UserCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.4.0-NavRedesign";
+const GAME_VERSION = "v8.5.3-LayoutFix";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -1189,12 +1189,16 @@ export const LeapOrbitGame: React.FC = () => {
             </div>
         )}
 
-        {/* Start Screen (Dashboard Redesign) */}
+        {/* Start Screen (Refactored: Split Content and Fixed Dock) */}
         {uiGameState === 'START' && (
-            <div className="absolute inset-0 z-30 flex flex-col bg-black/40 backdrop-blur-sm animate-in fade-in duration-500 overflow-y-auto touch-pan-y overscroll-contain">
-                <div className="min-h-full flex flex-col relative">
-                    {/* --- Top Bar: Profile & Assets --- */}
-                    <div className="w-full flex justify-between items-center p-4 md:p-6 pb-2 safe-area-top">
+            <div className="absolute inset-0 z-30 bg-black/40 backdrop-blur-sm animate-in fade-in duration-500 flex flex-col">
+                
+                {/* 1. Scrollable Content Layer (Has padding bottom to avoid overlap) */}
+                <div 
+                    className="flex-1 w-full overflow-y-auto overflow-x-hidden pb-40 lg:pb-0 touch-pan-y overscroll-contain relative [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
+                >
+                     {/* --- Top Bar: Profile & Assets --- */}
+                    <div className="w-full flex justify-between items-center p-4 md:p-6 pb-2 safe-area-top sticky top-0 bg-gradient-to-b from-black/80 to-transparent z-10 backdrop-blur-[2px]">
                         {/* Left: User Profile */}
                         <div className="flex items-center gap-3">
                             <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyan-900/40 border border-cyan-500/30 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.2)]">
@@ -1227,9 +1231,9 @@ export const LeapOrbitGame: React.FC = () => {
                     </div>
 
                     {/* --- Center Stage: Title & Play --- */}
-                    <div className="flex-1 flex flex-col items-center justify-center relative py-8 pb-32 md:pb-8">
-                        <div className="relative z-10 text-center mb-8 md:mb-12 px-4">
-                            <h1 className="text-4xl md:text-6xl font-black italic tracking-tighter bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(34,211,238,0.4)] transform -rotate-2">
+                    <div className="flex flex-col items-center justify-center py-8 lg:py-16 w-full max-w-[95vw] mx-auto">
+                        <div className="relative z-10 text-center mb-8 md:mb-12 px-8 w-full">
+                            <h1 className="text-4xl md:text-6xl font-black italic tracking-tighter bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(34,211,238,0.4)] transform -rotate-2 py-2 px-2">
                                 跃迁轨道
                             </h1>
                             <div className="flex items-center justify-center gap-3 mt-2 opacity-80">
@@ -1257,38 +1261,40 @@ export const LeapOrbitGame: React.FC = () => {
                             <p>躲避红刺 · 收集光点</p>
                         </div>
                     </div>
+                </div>
 
-                    {/* --- Bottom Dock: Navigation (Floating Desktop / Fixed Mobile) --- */}
-                    <div className="fixed bottom-0 left-0 right-0 z-40 md:bottom-8 md:left-1/2 md:-translate-x-1/2 md:w-auto md:right-auto">
-                        <div className="
-                            flex items-end justify-around w-full 
-                            md:w-auto md:items-center md:gap-8 md:px-8 md:py-3
-                            bg-neutral-950/90 backdrop-blur-xl border-t border-white/10 md:border md:rounded-full md:shadow-2xl md:bg-neutral-900/80
-                            pb-safe pt-2 md:pb-2
-                        ">
-                            {/* Leaderboard */}
-                            <button onClick={openLeaderboard} className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-white/5 transition-colors group w-16 md:w-auto">
-                                <Trophy size={20} className="md:w-5 md:h-5 text-slate-400 group-hover:text-yellow-400 transition-colors" />
-                                <span className="text-[10px] text-slate-500 font-bold group-hover:text-slate-300 md:hidden">排行榜</span>
-                            </button>
+                {/* 2. Fixed Dock Layer (Larger, higher, and cleaner) */}
+                <div className="absolute bottom-6 left-6 right-6 z-40 lg:bottom-10 lg:left-1/2 lg:-translate-x-1/2 lg:w-auto lg:right-auto pointer-events-none">
+                    <div className="
+                        pointer-events-auto
+                        flex items-end justify-around w-full 
+                        lg:w-auto lg:items-center lg:gap-8 lg:px-8 lg:py-4
+                        bg-neutral-950/90 backdrop-blur-xl border-t border-white/10 lg:border lg:rounded-full lg:shadow-2xl lg:bg-neutral-900/80
+                        pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-4 lg:pb-4 rounded-3xl lg:rounded-full
+                        border-x border-b shadow-2xl border-neutral-800
+                    ">
+                        {/* Leaderboard */}
+                        <button onClick={openLeaderboard} className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-white/5 transition-colors group w-16 lg:w-auto">
+                            <Trophy size={22} className="text-slate-400 group-hover:text-yellow-400 transition-colors" />
+                            <span className="text-[10px] text-slate-500 font-bold group-hover:text-slate-300 lg:hidden">排行榜</span>
+                        </button>
 
-                            {/* Shop (Center) */}
-                            <button onClick={openShop} className="group relative -top-6 md:top-0 md:relative">
-                                <div className="w-14 h-14 md:w-12 md:h-12 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-[0_4px_20px_rgba(124,58,237,0.5)] border-2 border-neutral-900 group-hover:scale-110 transition-transform">
-                                    <ShoppingBag size={22} className="text-white" />
-                                </div>
-                                <span className="text-[10px] text-purple-400 font-bold absolute -bottom-4 left-1/2 -translate-x-1/2 md:hidden">商店</span>
-                            </button>
-
-                            {/* Status */}
-                            <div className="flex flex-col items-center gap-1 p-2 rounded-xl w-16 md:w-auto opacity-60">
-                                {systemStatus.status === 'checking' && <Loader2 size={20} className="md:w-5 md:h-5 animate-spin text-slate-500" />}
-                                {systemStatus.status === 'ok' && <Cloud size={20} className="md:w-5 md:h-5 text-green-500" />}
-                                {systemStatus.status === 'error' && <CloudOff size={20} className="md:w-5 md:h-5 text-red-500" />}
-                                <span className="text-[10px] text-slate-500 font-bold md:hidden">
-                                    {systemStatus.status === 'checking' ? '上云中' : (systemStatus.status === 'ok' ? '云端数据' : '本地离线')}
-                                </span>
+                        {/* Shop (Center) */}
+                        <button onClick={openShop} className="group relative -top-8 lg:top-0 lg:relative">
+                            <div className="w-16 h-16 md:w-14 md:h-14 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(124,58,237,0.5)] border-4 border-black group-hover:scale-110 transition-transform">
+                                <ShoppingBag size={26} className="text-white" />
                             </div>
+                            <span className="text-[10px] text-purple-400 font-bold absolute -bottom-5 left-1/2 -translate-x-1/2 lg:hidden bg-black/80 px-2 py-0.5 rounded-full border border-purple-500/30 whitespace-nowrap z-50">商店</span>
+                        </button>
+
+                        {/* Status */}
+                        <div className="flex flex-col items-center gap-1.5 p-2 rounded-xl w-16 lg:w-auto opacity-80">
+                            {systemStatus.status === 'checking' && <Loader2 size={22} className="animate-spin text-slate-500" />}
+                            {systemStatus.status === 'ok' && <Cloud size={22} className="text-green-500" />}
+                            {systemStatus.status === 'error' && <CloudOff size={22} className="text-red-500" />}
+                            <span className="text-[10px] text-slate-500 font-bold lg:hidden">
+                                {systemStatus.status === 'checking' ? '上云中' : (systemStatus.status === 'ok' ? '云端数据' : '本地离线')}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -1393,10 +1399,16 @@ export const LeapOrbitGame: React.FC = () => {
              </div>
         )}
 
-        {/* Game Over Screen */}
+        {/* Game Over Screen (Fully Adaptive & Centered) */}
         {uiGameState === 'GAMEOVER' && (
-            <div className="absolute inset-0 flex items-center justify-center z-30 bg-red-900/20 backdrop-blur-sm p-4 pb-20 md:pb-4 overflow-y-auto touch-pan-y overscroll-contain">
-                <div className="text-center p-6 border border-red-500/30 rounded-2xl bg-black/90 shadow-2xl w-full max-w-sm mx-auto transform transition-all animate-in fade-in zoom-in duration-300 max-h-[85vh] overflow-y-auto custom-scrollbar touch-pan-y">
+            <div className="absolute inset-0 z-30 bg-red-900/20 backdrop-blur-sm flex items-center justify-center p-4">
+                 {/* 
+                   Centered Flexbox for all views.
+                   Added max-h-[85vh] to ensure it fits in landscape mobile screens.
+                   Added overflow-y-auto to allow scrolling inside the modal if the screen is tiny.
+                   Now HIDING scrollbars as requested.
+                 */}
+                <div className="w-full max-w-sm max-h-[85vh] overflow-y-auto custom-scrollbar bg-black/90 border border-red-500/30 rounded-2xl shadow-2xl p-6 text-center transform transition-all animate-in fade-in zoom-in duration-300 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
                     <div className="inline-block p-3 rounded-full bg-red-500/20 mb-4 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]">
                         <Skull size={32} className="text-red-500" />
                     </div>
