@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, Wifi, WifiOff, UploadCloud, Cloud, Coins } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.1.11-BonusUpdate";
+const GAME_VERSION = "v8.1.12-SyncFix";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -154,7 +154,8 @@ export const LeapOrbitGame: React.FC = () => {
   }, [totalCoins]);
 
   // Fetch User Data from Cloud (Source of Truth)
-  const fetchUserData = async (userId: string) => {
+  // Wrapped in useCallback to be safe for dependency arrays if needed
+  const fetchUserData = useCallback(async (userId: string) => {
       try {
           const { data, error } = await supabase
             .from('high_scores')
@@ -175,114 +176,9 @@ export const LeapOrbitGame: React.FC = () => {
       } catch (e) {
           console.error("Failed to fetch user data", e);
       }
-  };
-
-  useEffect(() => {
-    // 1. Initial Local Load (Guest Mode)
-    const localCoins = localStorage.getItem('leap_orbit_coins');
-    if (localCoins) {
-        const val = parseInt(localCoins, 10);
-        setTotalCoins(val);
-    }
-
-    // 2. Check Connection
-    const checkConnection = async () => {
-        try {
-            const { error } = await supabase.from('high_scores').select('count', { count: 'exact', head: true });
-            if (error) {
-                if (error.code === '42P01') {
-                     setSystemStatus({status: 'error', msg: '数据库配置错误'});
-                } else {
-                     setSystemStatus({status: 'error', msg: '离线模式'});
-                }
-            } else {
-                setSystemStatus({status: 'ok', msg: '已连接云端'});
-            }
-        } catch (err: any) {
-            setSystemStatus({status: 'error', msg: '网络异常'});
-        }
-    };
-    checkConnection();
-
-    // 3. Auth Listener
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      sessionRef.current = session;
-      if (session?.user) {
-          fetchUserData(session.user.id);
-      }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      sessionRef.current = session;
-      if (session?.user) {
-          fetchUserData(session.user.id);
-      }
-    });
-
-    return () => subscription.unsubscribe();
   }, []);
 
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthLoading(true);
-    setAuthError('');
-    try {
-      if (authMode === 'signup') {
-        const { error } = await supabase.auth.signUp({
-          email: authEmail,
-          password: authPassword,
-          options: { data: { username: authUsername } },
-        });
-        if (error) throw error;
-        alert("注册成功。请先验证邮箱再登录！");
-        setAuthMode('login'); 
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: authEmail,
-          password: authPassword,
-        });
-        if (error) throw error;
-        setShowAuthModal(false);
-      }
-    } catch (err: any) {
-      setAuthError(err.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    // Clear sensitive data on logout
-    setTotalCoins(0);
-    setHighScore(0);
-    // Optionally re-read local guest data
-    const localCoins = localStorage.getItem('leap_orbit_coins');
-    if (localCoins) setTotalCoins(parseInt(localCoins, 10));
-  };
-
-  const fetchLeaderboard = async () => {
-    setLeaderboardLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('high_scores')
-        .select('username, score, created_at')
-        .order('score', { ascending: false })
-        .limit(10);
-      
-      if (error && error.code !== '42P01') throw error;
-      setLeaderboardData(data || []);
-    } catch (err: any) {
-      console.error("Error fetching leaderboard:", err);
-      setLeaderboardData([]); 
-    } finally {
-      setLeaderboardLoading(false);
-    }
-  };
-
-  const syncData = async (score: number, currentRunCoins: number) => {
+  const syncData = useCallback(async (score: number, currentRunCoins: number) => {
     const currentSession = sessionRef.current;
     
     // 1. Guest Mode: Simple Local Storage
@@ -357,6 +253,127 @@ export const LeapOrbitGame: React.FC = () => {
     } catch (err: any) {
         console.error(err);
         setUploadStatus({status: 'error', msg: '网络错误'});
+    }
+  }, []);
+
+  useEffect(() => {
+    // 1. Initial Local Load (Guest Mode)
+    const localCoins = localStorage.getItem('leap_orbit_coins');
+    if (localCoins) {
+        const val = parseInt(localCoins, 10);
+        setTotalCoins(val);
+    }
+
+    // 2. Check Connection
+    const checkConnection = async () => {
+        try {
+            const { error } = await supabase.from('high_scores').select('count', { count: 'exact', head: true });
+            if (error) {
+                if (error.code === '42P01') {
+                     setSystemStatus({status: 'error', msg: '数据库配置错误'});
+                } else {
+                     setSystemStatus({status: 'error', msg: '离线模式'});
+                }
+            } else {
+                setSystemStatus({status: 'ok', msg: '已连接云端'});
+            }
+        } catch (err: any) {
+            setSystemStatus({status: 'error', msg: '网络异常'});
+        }
+    };
+    checkConnection();
+
+    // 3. Auth Listener
+    // Note: We moved fetchUserData out of here to handle it more granularly
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      sessionRef.current = session;
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      sessionRef.current = session;
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // New Effect: Handle Session Changes & Auto-Sync
+  useEffect(() => {
+    if (session?.user) {
+        if (uiGameState === 'GAMEOVER') {
+             // If the user logs in while on the Game Over screen, 
+             // automatically attempt to sync the result of the just-finished game.
+             // We check uploadStatus to prevent infinite loops or double uploads if already successful.
+             // 'idle' status here means it was processed as a Guest run locally, so we need to upgrade it to Cloud.
+             if (uploadStatus.status === 'idle' || uploadStatus.status === 'error') {
+                 // Use gameStats.coinsCollected because runCoins state might have been reset by the guest sync
+                 syncData(scoreDisplay, gameStats.coinsCollected);
+             }
+        } else {
+             // Normal login (e.g. Start Screen), just fetch the latest data
+             fetchUserData(session.user.id);
+        }
+    }
+  }, [session, uiGameState, fetchUserData, syncData, scoreDisplay, gameStats.coinsCollected, uploadStatus.status]);
+
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      if (authMode === 'signup') {
+        const { error } = await supabase.auth.signUp({
+          email: authEmail,
+          password: authPassword,
+          options: { data: { username: authUsername } },
+        });
+        if (error) throw error;
+        alert("注册成功。请先验证邮箱再登录！");
+        setAuthMode('login'); 
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+        setShowAuthModal(false);
+      }
+    } catch (err: any) {
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    // Clear sensitive data on logout
+    setTotalCoins(0);
+    setHighScore(0);
+    // Optionally re-read local guest data
+    const localCoins = localStorage.getItem('leap_orbit_coins');
+    if (localCoins) setTotalCoins(parseInt(localCoins, 10));
+    setUploadStatus({status: 'idle', msg: ''});
+  };
+
+  const fetchLeaderboard = async () => {
+    setLeaderboardLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('high_scores')
+        .select('username, score, created_at')
+        .order('score', { ascending: false })
+        .limit(10);
+      
+      if (error && error.code !== '42P01') throw error;
+      setLeaderboardData(data || []);
+    } catch (err: any) {
+      console.error("Error fetching leaderboard:", err);
+      setLeaderboardData([]); 
+    } finally {
+      setLeaderboardLoading(false);
     }
   };
 
