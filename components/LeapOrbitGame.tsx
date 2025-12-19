@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, UploadCloud, Cloud, CloudOff, Coins, ShoppingBag, LogOut, UserCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.3.4-ScrollFinal";
+const GAME_VERSION = "v8.4.0-NavRedesign";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -1192,7 +1192,7 @@ export const LeapOrbitGame: React.FC = () => {
         {/* Start Screen (Dashboard Redesign) */}
         {uiGameState === 'START' && (
             <div className="absolute inset-0 z-30 flex flex-col bg-black/40 backdrop-blur-sm animate-in fade-in duration-500 overflow-y-auto touch-pan-y overscroll-contain">
-                <div className="min-h-full flex flex-col">
+                <div className="min-h-full flex flex-col relative">
                     {/* --- Top Bar: Profile & Assets --- */}
                     <div className="w-full flex justify-between items-center p-4 md:p-6 pb-2 safe-area-top">
                         {/* Left: User Profile */}
@@ -1227,7 +1227,7 @@ export const LeapOrbitGame: React.FC = () => {
                     </div>
 
                     {/* --- Center Stage: Title & Play --- */}
-                    <div className="flex-1 flex flex-col items-center justify-center relative py-8">
+                    <div className="flex-1 flex flex-col items-center justify-center relative py-8 pb-32 md:pb-8">
                         <div className="relative z-10 text-center mb-8 md:mb-12 px-4">
                             <h1 className="text-4xl md:text-6xl font-black italic tracking-tighter bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(34,211,238,0.4)] transform -rotate-2">
                                 跃迁轨道
@@ -1258,30 +1258,35 @@ export const LeapOrbitGame: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* --- Bottom Dock: Navigation --- */}
-                    <div className="w-full px-4 md:px-6 pb-6 md:pb-8 safe-area-bottom">
-                        <div className="flex items-center justify-around bg-neutral-900/80 backdrop-blur-xl border border-white/5 rounded-2xl p-2 shadow-2xl mx-auto max-w-sm md:max-w-md">
+                    {/* --- Bottom Dock: Navigation (Floating Desktop / Fixed Mobile) --- */}
+                    <div className="fixed bottom-0 left-0 right-0 z-40 md:bottom-8 md:left-1/2 md:-translate-x-1/2 md:w-auto md:right-auto">
+                        <div className="
+                            flex items-end justify-around w-full 
+                            md:w-auto md:items-center md:gap-8 md:px-8 md:py-3
+                            bg-neutral-950/90 backdrop-blur-xl border-t border-white/10 md:border md:rounded-full md:shadow-2xl md:bg-neutral-900/80
+                            pb-safe pt-2 md:pb-2
+                        ">
                             {/* Leaderboard */}
-                            <button onClick={openLeaderboard} className="flex flex-col items-center gap-1 p-2 md:p-3 rounded-xl hover:bg-white/5 transition-colors group w-16 md:w-20">
-                                <Trophy size={18} className="md:w-5 md:h-5 text-slate-400 group-hover:text-yellow-400 transition-colors" />
-                                <span className="text-[9px] md:text-[10px] text-slate-500 font-bold group-hover:text-slate-300">排行榜</span>
+                            <button onClick={openLeaderboard} className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-white/5 transition-colors group w-16 md:w-auto">
+                                <Trophy size={20} className="md:w-5 md:h-5 text-slate-400 group-hover:text-yellow-400 transition-colors" />
+                                <span className="text-[10px] text-slate-500 font-bold group-hover:text-slate-300 md:hidden">排行榜</span>
                             </button>
 
-                            {/* Shop (Center Highlight) */}
-                            <button onClick={openShop} className="flex flex-col items-center gap-1 p-2 md:p-3 rounded-xl hover:bg-white/5 transition-colors group w-16 md:w-20 relative -top-5 md:-top-6">
-                                <div className="w-12 h-12 md:w-14 md:h-14 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-[0_5px_15px_rgba(124,58,237,0.4)] border border-white/10 group-hover:scale-110 transition-transform">
-                                    <ShoppingBag size={20} className="md:w-[22px] md:h-[22px] text-white" />
+                            {/* Shop (Center) */}
+                            <button onClick={openShop} className="group relative -top-6 md:top-0 md:relative">
+                                <div className="w-14 h-14 md:w-12 md:h-12 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-[0_4px_20px_rgba(124,58,237,0.5)] border-2 border-neutral-900 group-hover:scale-110 transition-transform">
+                                    <ShoppingBag size={22} className="text-white" />
                                 </div>
-                                <span className="text-[9px] md:text-[10px] text-purple-400 font-bold mt-1">商店</span>
+                                <span className="text-[10px] text-purple-400 font-bold absolute -bottom-4 left-1/2 -translate-x-1/2 md:hidden">商店</span>
                             </button>
 
-                            {/* Status (Cloud Connection Indicator) */}
-                            <div className="flex flex-col items-center gap-1 p-2 md:p-3 rounded-xl w-16 md:w-20 opacity-50">
-                                {systemStatus.status === 'checking' && <Loader2 size={18} className="md:w-5 md:h-5 animate-spin text-slate-500" />}
-                                {systemStatus.status === 'ok' && <Cloud size={18} className="md:w-5 md:h-5 text-green-500" />}
-                                {systemStatus.status === 'error' && <CloudOff size={18} className="md:w-5 md:h-5 text-red-500" />}
-                                <span className="text-[9px] md:text-[10px] text-slate-500 font-bold">
-                                    {systemStatus.status === 'checking' ? '上云中…' : (systemStatus.status === 'ok' ? '已连接云' : '本地离线')}
+                            {/* Status */}
+                            <div className="flex flex-col items-center gap-1 p-2 rounded-xl w-16 md:w-auto opacity-60">
+                                {systemStatus.status === 'checking' && <Loader2 size={20} className="md:w-5 md:h-5 animate-spin text-slate-500" />}
+                                {systemStatus.status === 'ok' && <Cloud size={20} className="md:w-5 md:h-5 text-green-500" />}
+                                {systemStatus.status === 'error' && <CloudOff size={20} className="md:w-5 md:h-5 text-red-500" />}
+                                <span className="text-[10px] text-slate-500 font-bold md:hidden">
+                                    {systemStatus.status === 'checking' ? '上云中' : (systemStatus.status === 'ok' ? '云端数据' : '本地离线')}
                                 </span>
                             </div>
                         </div>
@@ -1390,8 +1395,8 @@ export const LeapOrbitGame: React.FC = () => {
 
         {/* Game Over Screen */}
         {uiGameState === 'GAMEOVER' && (
-            <div className="absolute inset-0 flex items-center justify-center z-30 bg-red-900/20 backdrop-blur-sm p-4 overflow-y-auto touch-pan-y overscroll-contain">
-                <div className="text-center p-6 border border-red-500/30 rounded-2xl bg-black/90 shadow-2xl w-full max-w-sm mx-auto transform transition-all animate-in fade-in zoom-in duration-300 max-h-[90vh] overflow-y-auto custom-scrollbar touch-pan-y">
+            <div className="absolute inset-0 flex items-center justify-center z-30 bg-red-900/20 backdrop-blur-sm p-4 pb-20 md:pb-4 overflow-y-auto touch-pan-y overscroll-contain">
+                <div className="text-center p-6 border border-red-500/30 rounded-2xl bg-black/90 shadow-2xl w-full max-w-sm mx-auto transform transition-all animate-in fade-in zoom-in duration-300 max-h-[85vh] overflow-y-auto custom-scrollbar touch-pan-y">
                     <div className="inline-block p-3 rounded-full bg-red-500/20 mb-4 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]">
                         <Skull size={32} className="text-red-500" />
                     </div>
