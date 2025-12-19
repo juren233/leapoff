@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, UploadCloud, Cloud, CloudOff, Coins, ShoppingBag, LogOut, UserCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.5.3-LayoutFix";
+const GAME_VERSION = "v8.5.4-ModalFit";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -1198,7 +1198,7 @@ export const LeapOrbitGame: React.FC = () => {
                     className="flex-1 w-full overflow-y-auto overflow-x-hidden pb-40 lg:pb-0 touch-pan-y overscroll-contain relative [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
                 >
                      {/* --- Top Bar: Profile & Assets --- */}
-                    <div className="w-full flex justify-between items-center p-4 md:p-6 pb-2 safe-area-top sticky top-0 bg-gradient-to-b from-black/80 to-transparent z-10 backdrop-blur-[2px]">
+                    <div className="w-full flex justify-between items-center p-4 md:p-6 pb-2 safe-area-top sticky top-0 z-10">
                         {/* Left: User Profile */}
                         <div className="flex items-center gap-3">
                             <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyan-900/40 border border-cyan-500/30 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.2)]">
@@ -1404,11 +1404,11 @@ export const LeapOrbitGame: React.FC = () => {
             <div className="absolute inset-0 z-30 bg-red-900/20 backdrop-blur-sm flex items-center justify-center p-4">
                  {/* 
                    Centered Flexbox for all views.
-                   Added max-h-[85vh] to ensure it fits in landscape mobile screens.
+                   Added max-h-[75vh] to ensure it fits in landscape mobile screens.
                    Added overflow-y-auto to allow scrolling inside the modal if the screen is tiny.
                    Now HIDING scrollbars as requested.
                  */}
-                <div className="w-full max-w-sm max-h-[85vh] overflow-y-auto custom-scrollbar bg-black/90 border border-red-500/30 rounded-2xl shadow-2xl p-6 text-center transform transition-all animate-in fade-in zoom-in duration-300 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
+                <div className="w-full max-w-sm max-h-[75vh] overflow-y-auto custom-scrollbar bg-black/90 border border-red-500/30 rounded-2xl shadow-2xl p-6 text-center transform transition-all animate-in fade-in zoom-in duration-300 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
                     <div className="inline-block p-3 rounded-full bg-red-500/20 mb-4 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]">
                         <Skull size={32} className="text-red-500" />
                     </div>
