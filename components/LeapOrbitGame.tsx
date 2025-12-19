@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, LeaderboardEntry } from '../types';
-import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, Wifi, WifiOff, UploadCloud, Cloud, Coins } from 'lucide-react';
+import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, UploadCloud, Cloud, CloudOff, Coins, ShoppingBag, LogOut, UserCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.1.12-SyncFix";
+const GAME_VERSION = "v8.2.1-DashboardUI";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -380,6 +380,10 @@ export const LeapOrbitGame: React.FC = () => {
   const openLeaderboard = () => {
       setShowLeaderboard(true);
       fetchLeaderboard();
+  };
+
+  const openShop = () => {
+      alert("军备商店正在建设中... \n指挥官，请先积累金币！");
   };
 
   // --- Bonus & Coin Logic ---
@@ -1167,60 +1171,104 @@ export const LeapOrbitGame: React.FC = () => {
             </div>
         )}
 
-        {/* Start Screen */}
+        {/* Start Screen (Dashboard Redesign) */}
         {uiGameState === 'START' && (
-            <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/60 backdrop-blur-sm flex-col">
-                <div className="text-center p-8 border border-white/10 rounded-2xl bg-black/40 shadow-2xl max-w-sm mx-4 transform transition-all animate-in fade-in zoom-in duration-500 relative">
-                    
-                    {/* Coin Balance (Start Screen) */}
-                    <div className="absolute -top-12 left-0 flex items-center gap-2 bg-black/60 rounded-full px-3 py-1 border border-yellow-500/30">
-                        <Coins size={14} className="text-yellow-400" />
-                        <span className="text-yellow-100 font-mono font-bold text-xs">{totalCoins.toLocaleString()}</span>
-                    </div>
-
-                    {/* Auth Buttons */}
-                    <div className="absolute -top-12 right-0 flex gap-2">
-                        {session ? (
-                           <div className="flex items-center gap-2 bg-black/60 rounded-full px-3 py-1 border border-cyan-500/30">
-                              <span className="text-xs text-cyan-400 font-mono">{session.user.user_metadata.username || '指挥官'}</span>
-                              <button onClick={handleLogout} className="text-xs text-red-400 hover:text-red-300 underline">退出</button>
-                           </div>
-                        ) : (
-                           <button onClick={() => setShowAuthModal(true)} className="flex items-center gap-1 bg-cyan-900/50 hover:bg-cyan-800/50 text-cyan-200 text-xs px-3 py-1.5 rounded-full border border-cyan-500/30 transition-all">
-                              <LogIn size={12} /> 登录 / 注册
-                           </button>
-                        )}
-                        {/* Removed Leaderboard button from top right */}
-                    </div>
-
-                    <h1 className="text-4xl font-black mb-1 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">跃迁轨道</h1>
-                    <span className="text-xs text-slate-500 font-mono mb-8 block">{GAME_VERSION}</span>
-                    <div className="space-y-4 mb-8 text-sm text-slate-300">
-                        <p><span className="text-cyan-400 font-bold">综合计分</span>：光点 + 生存 + 圈数奖励</p>
-                        <p><span className="text-white font-bold">弹射起步</span>：点击屏幕即可向上方跃迁</p>
-                    </div>
-                    {/* Updated Start Button - Fixed width w-64 */}
-                    <button onClick={startGame} className="group relative w-64 py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-full transition-all hover:scale-105 active:scale-95 shadow-[0_0_25px_rgba(8,145,178,0.6)] flex items-center justify-center gap-2 mx-auto">
-                        <Play size={20} className="fill-current" /> 开始游戏
-                    </button>
-                    
-                    {/* Updated Leaderboard Button - Fixed width w-64 matching start button */}
-                    <button onClick={openLeaderboard} className="mt-4 group relative w-64 py-4 bg-yellow-900/40 hover:bg-yellow-900/60 text-yellow-200 font-bold rounded-full border border-yellow-500/30 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 mx-auto shadow-[0_0_15px_rgba(234,179,8,0.2)]">
-                        <Award size={20} /> 排行榜
-                    </button>
-                </div>
+            <div className="absolute inset-0 z-30 flex flex-col bg-black/40 backdrop-blur-sm animate-in fade-in duration-500">
                 
-                {/* System Status Bar */}
-                <div className={`mt-8 px-4 py-2 rounded-full text-xs font-mono flex items-center gap-2 border transition-colors ${
-                    systemStatus.status === 'ok' ? 'bg-green-900/20 border-green-500/30 text-green-400' : 
-                    systemStatus.status === 'error' ? 'bg-red-900/20 border-red-500/30 text-red-400' : 
-                    'bg-slate-900/20 border-slate-500/30 text-slate-400'
-                }`}>
-                    {systemStatus.status === 'checking' && <Loader2 size={12} className="animate-spin" />}
-                    {systemStatus.status === 'ok' && <Cloud size={12} />}
-                    {systemStatus.status === 'error' && <WifiOff size={12} />}
-                    {systemStatus.msg}
+                {/* --- Top Bar: Profile & Assets --- */}
+                <div className="w-full flex justify-between items-center p-6 pb-2 safe-area-top">
+                    {/* Left: User Profile */}
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-cyan-900/40 border border-cyan-500/30 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.2)]">
+                             <UserCircle size={20} className="text-cyan-400" />
+                        </div>
+                        <div className="flex flex-col">
+                            {session ? (
+                                <>
+                                    <span className="text-sm font-bold text-white tracking-wide">{session.user.user_metadata.username || '玩家'}</span>
+                                    <button onClick={handleLogout} className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-300 uppercase tracking-wider">
+                                        <LogOut size={10} /> 退出登录
+                                    </button>
+                                </>
+                            ) : (
+                                <button onClick={() => setShowAuthModal(true)} className="text-xs text-cyan-400 font-bold hover:underline">
+                                    点击登录
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Right: Coins */}
+                    <div className="flex flex-col items-end">
+                        <div className="flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-full border border-yellow-500/30 shadow-[0_0_10px_rgba(234,179,8,0.1)]">
+                             <Coins size={14} className="text-yellow-400" />
+                             <span className="text-yellow-400 font-mono font-bold text-sm tracking-widest">{totalCoins.toLocaleString()}</span>
+                        </div>
+                        <span className="text-[10px] text-yellow-500/50 uppercase tracking-widest mt-1 mr-2">金币</span>
+                    </div>
                 </div>
+
+                {/* --- Center Stage: Title & Play --- */}
+                <div className="flex-1 flex flex-col items-center justify-center relative">
+                    <div className="relative z-10 text-center mb-12">
+                        <h1 className="text-6xl font-black italic tracking-tighter bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(34,211,238,0.4)] transform -rotate-2">
+                            跃迁轨道
+                        </h1>
+                        <div className="flex items-center justify-center gap-3 mt-2 opacity-80">
+                            <div className="h-[1px] w-12 bg-gradient-to-r from-transparent to-cyan-500"></div>
+                            <span className="text-xs font-mono text-cyan-500 tracking-[0.2em]">{GAME_VERSION}</span>
+                            <div className="h-[1px] w-12 bg-gradient-to-l from-transparent to-cyan-500"></div>
+                        </div>
+                    </div>
+
+                    <button 
+                        onClick={startGame} 
+                        className="group relative w-24 h-24 rounded-full bg-cyan-500/10 border border-cyan-400/50 flex items-center justify-center transition-all hover:scale-110 active:scale-95 hover:bg-cyan-500/20"
+                    >
+                         {/* Pulse Ring 1 */}
+                         <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-ping opacity-20"></div>
+                         {/* Pulse Ring 2 */}
+                         <div className="absolute -inset-2 rounded-full border border-cyan-500/10 animate-pulse"></div>
+                         
+                         <Play size={32} className="fill-cyan-400 text-cyan-400 ml-1 group-hover:drop-shadow-[0_0_10px_rgba(34,211,238,0.8)] transition-all" />
+                    </button>
+                    <span className="mt-4 text-xs text-cyan-400/60 font-mono tracking-widest uppercase animate-pulse">开始游戏</span>
+                    
+                    <div className="mt-8 text-xs text-slate-500 flex flex-col items-center gap-1 opacity-60">
+                         <p>长按旋转前进</p>
+                         <p>躲避红刺 · 收集光点</p>
+                    </div>
+                </div>
+
+                {/* --- Bottom Dock: Navigation --- */}
+                <div className="w-full px-6 pb-8 safe-area-bottom">
+                    <div className="flex items-center justify-around bg-neutral-900/80 backdrop-blur-xl border border-white/5 rounded-2xl p-2 shadow-2xl mx-auto max-w-md">
+                        {/* Leaderboard */}
+                        <button onClick={openLeaderboard} className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-white/5 transition-colors group w-20">
+                            <Trophy size={20} className="text-slate-400 group-hover:text-yellow-400 transition-colors" />
+                            <span className="text-[10px] text-slate-500 font-bold group-hover:text-slate-300">排行榜</span>
+                        </button>
+
+                        {/* Shop (Center Highlight) */}
+                        <button onClick={openShop} className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-white/5 transition-colors group w-20 relative -top-6">
+                            <div className="w-14 h-14 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-[0_5px_15px_rgba(124,58,237,0.4)] border border-white/10 group-hover:scale-110 transition-transform">
+                                <ShoppingBag size={22} className="text-white" />
+                            </div>
+                            <span className="text-[10px] text-purple-400 font-bold mt-1">商店</span>
+                        </button>
+
+                         {/* Status (Cloud Connection Indicator) */}
+                         <div className="flex flex-col items-center gap-1 p-3 rounded-xl w-20 opacity-50">
+                            {systemStatus.status === 'checking' && <Loader2 size={20} className="animate-spin text-slate-500" />}
+                            {systemStatus.status === 'ok' && <Cloud size={20} className="text-green-500" />}
+                            {systemStatus.status === 'error' && <CloudOff size={20} className="text-red-500" />}
+                            <span className="text-[10px] text-slate-500 font-bold">
+                                {systemStatus.status === 'checking' ? '上云中…' : (systemStatus.status === 'ok' ? '已连接云' : '本地离线')}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         )}
 
@@ -1283,7 +1331,7 @@ export const LeapOrbitGame: React.FC = () => {
                         {leaderboardLoading ? (
                             <div className="flex flex-col items-center justify-center h-40 text-slate-500 gap-2">
                                 <Loader2 size={24} className="animate-spin"/>
-                                <span className="text-xs">加载中...</span>
+                                <span className="text-xs">加速载入中...</span>
                             </div>
                         ) : (
                             <div className="space-y-2">
@@ -1316,7 +1364,7 @@ export const LeapOrbitGame: React.FC = () => {
                     </div>
                      <div className="mt-4 pt-4 border-t border-white/10 text-center text-xs text-slate-500">
                         {/* Updated Footer */}
-                        全球前10名
+                        仅展示全球前10名玩家分数
                     </div>
                 </div>
              </div>
