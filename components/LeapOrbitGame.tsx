@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, UploadCloud, Cloud, CloudOff, Coins, ShoppingBag, LogOut, UserCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.3.2-TouchFix";
+const GAME_VERSION = "v8.3.3-MobileScroll";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -154,14 +154,19 @@ export const LeapOrbitGame: React.FC = () => {
   }, [totalCoins]);
   
   // --- Mobile Scroll Fix Logic ---
-  // When in 'START' or 'GAMEOVER', we allow touch actions (scrolling).
-  // When in 'PLAYING' or 'DYING', we disable touch actions (prevent accidental scrolling/zooming while tapping).
+  // When in 'START' or 'GAMEOVER', we explicitly ALLOW default touch actions on the body.
+  // This is crucial because index.html sets touch-action: none globally.
+  // We override it here when needed.
   useEffect(() => {
       const body = document.body;
       if (uiGameState === 'START' || uiGameState === 'GAMEOVER') {
+          // Allow scrolling in menus
           body.style.touchAction = 'auto';
+          body.style.overflow = 'hidden'; // Keep body hidden, let the overlay scroll
       } else {
+          // Disable scrolling during game
           body.style.touchAction = 'none';
+          body.style.overflow = 'hidden';
       }
       
       return () => {
@@ -1207,7 +1212,7 @@ export const LeapOrbitGame: React.FC = () => {
 
         {/* Start Screen (Dashboard Redesign) */}
         {uiGameState === 'START' && (
-            <div className="absolute inset-0 z-30 flex flex-col bg-black/40 backdrop-blur-sm animate-in fade-in duration-500 overflow-y-auto touch-auto">
+            <div className="absolute inset-0 z-30 flex flex-col bg-black/40 backdrop-blur-sm animate-in fade-in duration-500 overflow-y-auto touch-pan-y overscroll-contain">
                 <div className="min-h-full flex flex-col">
                     {/* --- Top Bar: Profile & Assets --- */}
                     <div className="w-full flex justify-between items-center p-4 md:p-6 pb-2 safe-area-top">
@@ -1308,7 +1313,7 @@ export const LeapOrbitGame: React.FC = () => {
 
         {/* Auth Modal */}
         {showAuthModal && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in overflow-y-auto touch-auto">
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in overflow-y-auto touch-pan-y overscroll-contain">
                 <div className="w-full max-w-xs bg-neutral-900 border border-cyan-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(6,182,212,0.15)] relative my-auto">
                     <button onClick={() => setShowAuthModal(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20}/></button>
                     {/* Updated Title */}
@@ -1352,7 +1357,7 @@ export const LeapOrbitGame: React.FC = () => {
 
         {/* Leaderboard Modal */}
         {showLeaderboard && (
-             <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in touch-auto">
+             <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in touch-pan-y overscroll-contain">
                 <div className="w-full max-w-sm bg-neutral-900 border border-yellow-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(234,179,8,0.15)] relative h-[70vh] max-h-[600px] flex flex-col">
                     <button onClick={() => setShowLeaderboard(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20}/></button>
                     <div className="flex items-center justify-center gap-2 mb-6">
@@ -1361,7 +1366,7 @@ export const LeapOrbitGame: React.FC = () => {
                         <h2 className="text-xl font-bold text-white tracking-wider">排行榜</h2>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar touch-auto">
+                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar touch-pan-y">
                         {leaderboardLoading ? (
                             <div className="flex flex-col items-center justify-center h-40 text-slate-500 gap-2">
                                 <Loader2 size={24} className="animate-spin"/>
@@ -1406,8 +1411,8 @@ export const LeapOrbitGame: React.FC = () => {
 
         {/* Game Over Screen */}
         {uiGameState === 'GAMEOVER' && (
-            <div className="absolute inset-0 flex items-center justify-center z-30 bg-red-900/20 backdrop-blur-sm p-4 overflow-y-auto touch-auto">
-                <div className="text-center p-6 border border-red-500/30 rounded-2xl bg-black/90 shadow-2xl w-full max-w-sm mx-auto transform transition-all animate-in fade-in zoom-in duration-300 max-h-[90vh] overflow-y-auto custom-scrollbar touch-auto">
+            <div className="absolute inset-0 flex items-center justify-center z-30 bg-red-900/20 backdrop-blur-sm p-4 overflow-y-auto touch-pan-y overscroll-contain">
+                <div className="text-center p-6 border border-red-500/30 rounded-2xl bg-black/90 shadow-2xl w-full max-w-sm mx-auto transform transition-all animate-in fade-in zoom-in duration-300 max-h-[90vh] overflow-y-auto custom-scrollbar touch-pan-y">
                     <div className="inline-block p-3 rounded-full bg-red-500/20 mb-4 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]">
                         <Skull size={32} className="text-red-500" />
                     </div>
