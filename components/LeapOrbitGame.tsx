@@ -3,7 +3,7 @@ import { Player, Entity, Particle, Shockwave, EntityType, FloatingText, Leaderbo
 import { Shield, Zap, Skull, Trophy, Play, RefreshCw, AlertTriangle, RotateCw, Flame, Clock, Hash, Target, User, LogIn, Award, X, Loader2, CheckCircle, UploadCloud, Cloud, CloudOff, Coins, ShoppingBag, LogOut, UserCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-const GAME_VERSION = "v8.2.1-DashboardUI";
+const GAME_VERSION = "v8.2.2-DashboardUI";
 
 // --- Game Constants ---
 const PLAYER_CONFIG = {
@@ -383,7 +383,7 @@ export const LeapOrbitGame: React.FC = () => {
   };
 
   const openShop = () => {
-      alert("军备商店正在建设中... \n指挥官，请先积累金币！");
+      alert("新建文件夹中…\n你别急😁");
   };
 
   // --- Bonus & Coin Logic ---
