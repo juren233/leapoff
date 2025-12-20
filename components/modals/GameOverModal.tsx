@@ -119,9 +119,12 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
                       uploadStatus.status === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-400' :
                       'bg-blue-500/10 border-blue-500/20 text-blue-400'
                     }`}>
-                      {(uploadStatus.status === 'uploading' || uploadStatus.status === 'idle') && <Loader2 size={12} className="animate-spin md:w-[13px]"/>}
+                      {(uploadStatus.status === 'uploading' || (uploadStatus.status === 'idle' && !uploadStatus.msg)) && <Loader2 size={12} className="animate-spin md:w-[13px]"/>}
                       {uploadStatus.status === 'success' && <CheckCircle size={12} className="md:w-[13px]" />}
                       {uploadStatus.status === 'error' && <AlertTriangle size={12} className="md:w-[13px]" />}
+                      {/* Idle with msg (like 'Saved Locally') gets a checkmark-ish look? Or just text. */}
+                      {uploadStatus.status === 'idle' && uploadStatus.msg && <CheckCircle size={12} className="text-blue-400 md:w-[13px] opacity-50" />}
+                      
                       <span className="font-medium tracking-wide">{uploadStatus.msg || (uploadStatus.status === 'idle' ? '准备上传...' : '')}</span>
                     </div>
                     {/* Retry Button */}

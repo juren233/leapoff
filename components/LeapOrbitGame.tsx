@@ -35,6 +35,7 @@ export const LeapOrbitGame: React.FC = () => {
 
   // --- Refs for Stale Closure Prevention ---
   const totalCoinsRef = useRef(0);
+  const hasSyncedToServerRef = useRef(false); // Prevent double coin submission
 
   const [gameStats, setGameStats] = useState<GameStats>({ 
     duration: 0, 
@@ -76,7 +77,7 @@ export const LeapOrbitGame: React.FC = () => {
   const maxDeathTimerRef = useRef(180);
   
   // Coin & Bonus State Refs
-  const coinsRef = useRef(0); // Current run coins
+  const coinsRef = useRef(0); // Current run coins (Logic source of truth)
   const lastBonusThresholdRef = useRef(0); // Tracks 2000, 4000, 6000...
   const isBonusTimeRef = useRef(false);
   const bonusTimerRef = useRef(0);
@@ -154,13 +155,18 @@ export const LeapOrbitGame: React.FC = () => {
         const currentTotal = totalCoinsRef.current;
         const newTotal = currentTotal + currentRunCoins;
         setTotalCoins(newTotal);
-        setRunCoins(0); 
+        setRunCoins(0); // <--- FIX: Reset runCoins to 0 to avoid double counting (Total + Run) in HUD
         localStorage.setItem('leap_orbit_coins', newTotal.toString());
         setUploadStatus({status: 'idle', msg: '未登录，仅保存本地'});
         return;
     }
-    
+
     // 2. Auth Mode: Secure Server Sync
+    if (hasSyncedToServerRef.current) {
+        setUploadStatus({status: 'success', msg: '数据已同步'});
+        return;
+    }
+    
     setUploadStatus({status: 'uploading', msg: '正在同步数据...'});
 
     try {
@@ -204,9 +210,10 @@ export const LeapOrbitGame: React.FC = () => {
              if (upsertError.code === '42P01') setUploadStatus({status: 'error', msg: '云端表缺失'});
              else setUploadStatus({status: 'error', msg: '同步失败'});
         } else {
+            hasSyncedToServerRef.current = true; // Mark as synced
             setHighScore(newHighScore);
             setTotalCoins(newTotalCoins);
-            setRunCoins(0); 
+            setRunCoins(0); // Reset run coins after successful server sync
             localStorage.setItem('leap_orbit_coins', newTotalCoins.toString()); 
             setUploadStatus({status: 'success', msg: msg});
         }
@@ -261,14 +268,18 @@ export const LeapOrbitGame: React.FC = () => {
   useEffect(() => {
     if (session?.user) {
         if (uiGameState === 'GAMEOVER') {
-             if (uploadStatus.status === 'idle' || uploadStatus.status === 'error') {
-                 syncData(scoreDisplay, gameStats.coinsCollected);
-             }
+             // If User logs in while on Game Over screen, retry sync automatically
+             // Use coinsRef.current to get the coins from the run that just ended
+             // NOTE: coinsRef.current persists even after setRunCoins(0) is called, so this is safe.
+             const timer = setTimeout(() => {
+                 syncData(scoreDisplay, coinsRef.current);
+             }, 200);
+             return () => clearTimeout(timer);
         } else {
              fetchUserData(session.user.id);
         }
     }
-  }, [session, uiGameState, fetchUserData, syncData, scoreDisplay, gameStats.coinsCollected, uploadStatus.status]);
+  }, [session, uiGameState, scoreDisplay, fetchUserData, syncData]);
 
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -631,6 +642,7 @@ export const LeapOrbitGame: React.FC = () => {
     // Reset Bonus State
     coinsRef.current = 0;
     setRunCoins(0);
+    hasSyncedToServerRef.current = false; // Reset sync flag for new game
     lastBonusThresholdRef.current = 0;
     isBonusTimeRef.current = false;
     bonusTimerRef.current = 0;
@@ -657,9 +669,26 @@ export const LeapOrbitGame: React.FC = () => {
 
   const triggerDyingSequence = () => {
     if (gameStateRef.current === 'DYING' || gameStateRef.current === 'GAMEOVER') return;
-    gameEndTimeRef.current = Date.now();
+    
+    gameEndTimeRef.current = Date.now(); // Stop clock immediately
     gameStateRef.current = 'DYING';
     setUiGameState('DYING');
+    
+    // --- OPTIMIZATION: Trigger Upload IMMEDIATELY ---
+    // Instead of waiting for the animation to finish and the modal to open,
+    // we sync data right here. By the time the 3s animation is done, 
+    // the upload is likely finished.
+    const finalScore = calculateCurrentTotalScore();
+    const finalCoins = coinsRef.current;
+    
+    // Set these visual states immediately so there's no jump later
+    setScoreDisplay(finalScore);
+    setHighScore(prev => Math.max(prev, finalScore));
+    
+    // Execute Sync
+    syncData(finalScore, finalCoins);
+    // ------------------------------------------------
+
     deathTimerRef.current = maxDeathTimerRef.current; 
     shake.current = 15; 
     triggerHaptic([40, 30, 80, 30, 500]);
@@ -670,10 +699,12 @@ export const LeapOrbitGame: React.FC = () => {
 
   const handleGameOver = () => {
     gameStateRef.current = 'GAMEOVER';
+    
     const finalTime = (gameEndTimeRef.current || Date.now()) - gameStartTimeRef.current;
-    const finalTotalScore = calculateCurrentTotalScore();
-    setScoreDisplay(finalTotalScore);
-
+    
+    // We already calculated total score in triggerDyingSequence, 
+    // but calculating again for stats breakdown is safe and fast.
+    
     entitiesRef.current.forEach(e => {
         if (e && e.active) {
             const ex = Math.cos(e.angle) * e.dist;
@@ -694,10 +725,9 @@ export const LeapOrbitGame: React.FC = () => {
         multiplier: 1 + (orbitRef.current - 1) * 0.1,
         coinsCollected: coinsRef.current
     });
-    setHighScore(prev => Math.max(prev, finalTotalScore));
-
-    // Sync Data (Score + Coins)
-    syncData(finalTotalScore, coinsRef.current);
+    
+    // Note: setHighScore and setScoreDisplay were already called in triggerDyingSequence.
+    // Note: syncData was already called in triggerDyingSequence.
     
     setTimeout(() => {
         setUiGameState('GAMEOVER');
@@ -908,7 +938,12 @@ export const LeapOrbitGame: React.FC = () => {
       }
     }
 
-    particlesRef.current.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.life -= 0.038; if (p.life <= 0) particlesRef.current.splice(i, 1); });
+    particlesRef.current.forEach((p, i) => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life -= 0.038;
+      if (p.life <= 0) particlesRef.current.splice(i, 1);
+    });
     shockwavesRef.current.forEach((sw, i) => { sw.radius += 15; sw.life -= 0.038; if (sw.life <= 0) shockwavesRef.current.splice(i, 1); });
     floatingTextsRef.current.forEach((ft, i) => { ft.y += ft.vy; ft.life -= 0.025; if (ft.life <= 0) floatingTextsRef.current.splice(i, 1); });
     if (shake.current > 0) shake.current *= 0.9;
