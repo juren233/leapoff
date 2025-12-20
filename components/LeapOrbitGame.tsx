@@ -35,7 +35,9 @@ export const LeapOrbitGame: React.FC = () => {
 
   // --- Refs for Stale Closure Prevention ---
   const totalCoinsRef = useRef(0);
+  const highScoreRef = useRef(0); // NEW: Track high score for syncData without stale closure
   const hasSyncedToServerRef = useRef(false); // Prevent double coin submission
+  const isSyncingRef = useRef(false); // Prevent concurrent sync requests
 
   const [gameStats, setGameStats] = useState<GameStats>({ 
     duration: 0, 
@@ -121,9 +123,10 @@ export const LeapOrbitGame: React.FC = () => {
   // --- Initialization & Persistance ---
 
   useEffect(() => {
-    // Keep ref in sync with state
+    // Keep refs in sync with state for access inside callbacks
     totalCoinsRef.current = totalCoins;
-  }, [totalCoins]);
+    highScoreRef.current = highScore;
+  }, [totalCoins, highScore]);
   
   // Fetch User Data from Cloud (Source of Truth)
   const fetchUserData = useCallback(async (userId: string) => {
@@ -155,7 +158,7 @@ export const LeapOrbitGame: React.FC = () => {
         const currentTotal = totalCoinsRef.current;
         const newTotal = currentTotal + currentRunCoins;
         setTotalCoins(newTotal);
-        setRunCoins(0); // <--- FIX: Reset runCoins to 0 to avoid double counting (Total + Run) in HUD
+        setRunCoins(0); 
         localStorage.setItem('leap_orbit_coins', newTotal.toString());
         setUploadStatus({status: 'idle', msg: '未登录，仅保存本地'});
         return;
@@ -166,60 +169,67 @@ export const LeapOrbitGame: React.FC = () => {
         setUploadStatus({status: 'success', msg: '数据已同步'});
         return;
     }
+
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
     
     setUploadStatus({status: 'uploading', msg: '正在同步数据...'});
 
     try {
-        const { data: serverData, error: fetchError } = await supabase
-            .from('high_scores')
-            .select('score, coins')
-            .eq('user_id', currentSession.user.id)
-            .single();
-
-        let serverCoins = 0;
-        let serverScore = 0;
-
-        if (serverData) {
-            serverCoins = serverData.coins || 0;
-            serverScore = serverData.score || 0;
-        } else if (fetchError && fetchError.code !== 'PGRST116') {
-             throw fetchError; 
-        }
-
-        const newTotalCoins = serverCoins + currentRunCoins;
-        const newHighScore = Math.max(serverScore, score);
-
-        let msg = '数据已同步';
-        if (score > serverScore) {
-             msg = '新纪录已保存！';
-        } else if (serverScore > score) {
-             const diff = serverScore - score + 1;
-             msg = `再接再厉！还差 ${diff} 分就破记录了！`;
-        }
-
-        const { error: upsertError } = await supabase
-        .from('high_scores')
-        .upsert({
-            user_id: currentSession.user.id,
-            username: currentSession.user.user_metadata.username || currentSession.user.email?.split('@')[0] || 'Unknown',
-            score: newHighScore,
-            coins: newTotalCoins 
-        }, { onConflict: 'user_id' });
+        // --- OPTIMIZATION: ATOMIC INCREMENT (RPC) ---
+        // We use a database function (RPC) to perform "coins = coins + gained" on the server.
+        // This solves:
+        // 1. Race Conditions: Multiple devices won't overwrite each other.
+        // 2. Speed: Only 1 request needed (no SELECT required).
+        // 3. Consistency: Returns the TRUE authoritative total from server immediately.
         
-        if (upsertError) {
-             if (upsertError.code === '42P01') setUploadStatus({status: 'error', msg: '云端表缺失'});
-             else setUploadStatus({status: 'error', msg: '同步失败'});
-        } else {
+        const username = currentSession.user.user_metadata.username || currentSession.user.email?.split('@')[0] || 'Unknown';
+
+        const { data, error } = await supabase.rpc('sync_game_data', {
+            p_username: username,
+            p_score: score,
+            p_coins_gained: currentRunCoins
+        });
+
+        if (error) throw error;
+
+        // Data contains { coins: number, score: number } from the server
+        if (data) {
             hasSyncedToServerRef.current = true; // Mark as synced
-            setHighScore(newHighScore);
-            setTotalCoins(newTotalCoins);
-            setRunCoins(0); // Reset run coins after successful server sync
-            localStorage.setItem('leap_orbit_coins', newTotalCoins.toString()); 
+            
+            // Update local state to match server's Truth
+            setHighScore(data.score);
+            setTotalCoins(data.coins);
+            setRunCoins(0); // Clear run buffer
+            
+            localStorage.setItem('leap_orbit_coins', data.coins.toString()); 
+            
+            let msg = '数据已同步';
+            // RESTORED: Check difference between current run score and the server's ALL TIME high score
+            if (score >= data.score && score > 0) {
+                 msg = '新纪录已保存！';
+            } else if (data.score > score) {
+                 const diff = data.score - score + 1;
+                 msg = `再接再厉！还差 ${diff} 分就破记录了！`;
+            }
+            
             setUploadStatus({status: 'success', msg: msg});
         }
     } catch (err: any) {
-        console.error(err);
-        setUploadStatus({status: 'error', msg: '网络错误'});
+        console.error("Sync Error:", err);
+        
+        // Handle Missing Column Error (42703)
+        if (err.code === '42703') {
+             setUploadStatus({status: 'error', msg: '数据库缺updated_at字段'});
+        }
+        // Handle Missing Function Error
+        else if (err.message && (err.message.includes('function') || err.message.includes('RPC'))) {
+             setUploadStatus({status: 'error', msg: '需更新数据库函数'});
+        } else {
+             setUploadStatus({status: 'error', msg: '同步失败'});
+        }
+    } finally {
+        isSyncingRef.current = false;
     }
   }, []);
 
@@ -268,13 +278,13 @@ export const LeapOrbitGame: React.FC = () => {
   useEffect(() => {
     if (session?.user) {
         if (uiGameState === 'GAMEOVER') {
-             // If User logs in while on Game Over screen, retry sync automatically
-             // Use coinsRef.current to get the coins from the run that just ended
-             // NOTE: coinsRef.current persists even after setRunCoins(0) is called, so this is safe.
-             const timer = setTimeout(() => {
-                 syncData(scoreDisplay, coinsRef.current);
-             }, 200);
-             return () => clearTimeout(timer);
+             // Only auto-retry sync if not already synced or currently syncing
+             if (!hasSyncedToServerRef.current && !isSyncingRef.current) {
+                 const timer = setTimeout(() => {
+                     syncData(scoreDisplay, coinsRef.current);
+                 }, 200);
+                 return () => clearTimeout(timer);
+             }
         } else {
              fetchUserData(session.user.id);
         }
@@ -643,6 +653,7 @@ export const LeapOrbitGame: React.FC = () => {
     coinsRef.current = 0;
     setRunCoins(0);
     hasSyncedToServerRef.current = false; // Reset sync flag for new game
+    isSyncingRef.current = false; // Reset sync lock
     lastBonusThresholdRef.current = 0;
     isBonusTimeRef.current = false;
     bonusTimerRef.current = 0;
@@ -683,7 +694,10 @@ export const LeapOrbitGame: React.FC = () => {
     
     // Set these visual states immediately so there's no jump later
     setScoreDisplay(finalScore);
-    setHighScore(prev => Math.max(prev, finalScore));
+    // Note: We do NOT optimistically update highScore/totalCoins here anymore for the UI 
+    // because we want the authoritative response from the RPC.
+    // However, for the "Game Over" modal's immediate display, we can show what we have, 
+    // but the final "Total Coins" will be updated when the RPC returns.
     
     // Execute Sync
     syncData(finalScore, finalCoins);
@@ -725,9 +739,6 @@ export const LeapOrbitGame: React.FC = () => {
         multiplier: 1 + (orbitRef.current - 1) * 0.1,
         coinsCollected: coinsRef.current
     });
-    
-    // Note: setHighScore and setScoreDisplay were already called in triggerDyingSequence.
-    // Note: syncData was already called in triggerDyingSequence.
     
     setTimeout(() => {
         setUiGameState('GAMEOVER');
