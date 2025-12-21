@@ -1,3 +1,7 @@
+/*
+ * 文件作用：定义游戏所需的所有类型接口
+ * 注意：开头这段注释不得删除！！！
+ */
 
 export type EntityType = 'score' | 'enemy' | 'shield' | 'magnet' | 'nuke' | 'dash' | 'coin';
 
@@ -76,6 +80,13 @@ export interface FloatingText {
   size: number;
 }
 
+export interface Star {
+  x: number;
+  y: number;
+  size: number;
+  opacity: number;
+}
+
 export interface GameState {
   score: number;
   highScore: number;
@@ -114,4 +125,38 @@ export interface GameStats {
   orbitBonus: number;
   multiplier: number;
   coinsCollected: number;
+}
+
+// Key Mapping for Game Refs used across modules
+export interface GameRefs {
+  canvasRef: React.RefObject<HTMLCanvasElement>;
+  containerRef: React.RefObject<HTMLDivElement>;
+  gameStateRef: React.MutableRefObject<GameStateStatus>;
+  actionScoreRef: React.MutableRefObject<number>;
+  orbitRef: React.MutableRefObject<number>;
+  gameStartTimeRef: React.MutableRefObject<number>;
+  gameEndTimeRef: React.MutableRefObject<number | null>;
+  isFillingInnerZoneRef: React.MutableRefObject<boolean>;
+  deathTimerRef: React.MutableRefObject<number>;
+  maxDeathTimerRef: React.MutableRefObject<number>;
+  coinsRef: React.MutableRefObject<number>;
+  lastBonusThresholdRef: React.MutableRefObject<number>;
+  isBonusTimeRef: React.MutableRefObject<boolean>;
+  bonusTimerRef: React.MutableRefObject<number>;
+  frameId: React.MutableRefObject<number>;
+  isPressing: React.MutableRefObject<boolean>;
+  shake: React.MutableRefObject<number>;
+  dimensions: React.MutableRefObject<{ width: number; height: number; cx: number; cy: number }>;
+  cameraRef: React.MutableRefObject<{ x: number; y: number; zoom: number }>;
+  playerRef: React.MutableRefObject<Player>;
+  entitiesRef: React.MutableRefObject<Entity[]>;
+  particlesRef: React.MutableRefObject<Particle[]>;
+  shockwavesRef: React.MutableRefObject<Shockwave[]>;
+  floatingTextsRef: React.MutableRefObject<FloatingText[]>;
+  starsRef: React.MutableRefObject<Star[]>;
+  entityIdCounter: React.MutableRefObject<number>;
+  totalCoinsRef: React.MutableRefObject<number>;
+  highScoreRef: React.MutableRefObject<number>;
+  hasSyncedToServerRef: React.MutableRefObject<boolean>;
+  isSyncingRef: React.MutableRefObject<boolean>;
 }

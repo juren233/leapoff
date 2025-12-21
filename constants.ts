@@ -1,4 +1,4 @@
-export const GAME_VERSION = "v8.6.1-Bugfixes";
+export const GAME_VERSION = "v8.7.0-refactor";
 
 export const PLAYER_CONFIG = {
   baseRadius: 100,
