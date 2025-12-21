@@ -8,7 +8,7 @@ import { Player, Entity, Particle, Shockwave, FloatingText, LeaderboardEntry, Ga
 import { supabase } from '../lib/supabase';
 
 // Modular Imports
-import { PLAYER_CONFIG, COLORS, BONUS_DURATION_FRAMES } from '../constants';
+import { PLAYER_CONFIG, COLORS, BONUS_DURATION_SECONDS } from '../constants';
 import { GameHUD } from './ui/GameHUD';
 import { StartScreen } from './ui/StartScreen';
 import { GameOverModal } from './modals/GameOverModal';
@@ -62,7 +62,7 @@ export const LeapOrbitGame: React.FC = () => {
       angle: 0, radius: PLAYER_CONFIG.baseRadius, baseRadius: PLAYER_CONFIG.baseRadius, leapLimit: 999999,
       rVelocity: 0, accelOut: PLAYER_CONFIG.accelOut, gravity: PLAYER_CONFIG.gravity, drag: PLAYER_CONFIG.drag,
       rotSpeed: PLAYER_CONFIG.rotSpeed, size: PLAYER_CONFIG.size, color: COLORS.player, x: 0, y: 0,
-      trail: [], shieldTime: 0, magnetTime: 0, magnetCount: 0, dashTime: 0, centerTime: 0
+      trail: [], shieldTime: 0, magnetTime: 0, magnetCount: 0, dashTime: 0, centerTime: 0, trailAccumulator: 0
   });
   const entitiesRef = useRef<Entity[]>([]);
   const particlesRef = useRef<Particle[]>([]);
@@ -109,7 +109,7 @@ export const LeapOrbitGame: React.FC = () => {
       playerRef.current = {
           ...playerRef.current,
           angle: 0, radius: PLAYER_CONFIG.baseRadius + 140, rVelocity: 0, gravity: PLAYER_CONFIG.gravity,
-          shieldTime: 0, magnetTime: 0, magnetCount: 0, dashTime: 0, centerTime: 0, trail: [], x: 0, y: 0
+          shieldTime: 0, magnetTime: 0, magnetCount: 0, dashTime: 0, centerTime: 0, trail: [], x: 0, y: 0, trailAccumulator: 0
       };
       entitiesRef.current = [];
       particlesRef.current = [];
@@ -148,9 +148,13 @@ export const LeapOrbitGame: React.FC = () => {
 
   const triggerBonusMode = useCallback(() => {
       isBonusTimeRef.current = true;
-      bonusTimerRef.current = BONUS_DURATION_FRAMES;
+      // Initialize with SECONDS (10s) directly
+      bonusTimerRef.current = BONUS_DURATION_SECONDS;
       setIsBonusTimeUI(true);
-      playerRef.current.gravity = 0.25;
+      
+      // Use configured Bonus Gravity from constants
+      playerRef.current.gravity = PLAYER_CONFIG.bonusGravity;
+      
       shake.current = 10;
       triggerHaptic([50, 50, 50, 50, 200]);
       createShockwave(refs, 0, 0, COLORS.coin);
@@ -173,7 +177,10 @@ export const LeapOrbitGame: React.FC = () => {
       isBonusTimeRef.current = false;
       setIsBonusTimeUI(false);
       triggerHaptic(50);
+      
+      // Reset gravity to normal
       playerRef.current.gravity = PLAYER_CONFIG.gravity;
+      
       entitiesRef.current = entitiesRef.current.filter(e => e.type !== 'coin');
       spawnSafetyRing(refs, orbitRef.current);
       isFillingInnerZoneRef.current = true;

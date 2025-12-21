@@ -172,7 +172,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               <div className="flex flex-col items-start">
                  <span className="text-[9px] md:text-[10px] text-yellow-400 font-black tracking-widest leading-none mb-0.5">金币时间</span>
                  <span className="text-white font-mono font-bold text-base md:text-xl leading-none drop-shadow-md">
-                    {(bonusTimeLeft / 60).toFixed(1)}<span className="text-[9px] md:text-[10px] ml-0.5 opacity-70 font-sans font-normal">s</span>
+                    {/* Fixed: Display seconds directly without division */}
+                    {bonusTimeLeft.toFixed(1)}<span className="text-[9px] md:text-[10px] ml-0.5 opacity-70 font-sans font-normal">s</span>
                  </span>
               </div>
             </div>

@@ -84,7 +84,10 @@ export const updateGame = (
     const currentTotalScore = calculateCurrentTotalScore(refs.gameEndTimeRef.current, refs.gameStartTimeRef.current, refs.orbitRef.current, refs.actionScoreRef.current);
     
     if (refs.isBonusTimeRef.current) {
-        refs.bonusTimerRef.current -= 1 * dt;
+        // dt = delta / 16.666 ms
+        // To subtract seconds: refs.bonusTimerRef.current (seconds) -= dt / 60
+        // (because dt=1 means 1/60th of a second passed)
+        refs.bonusTimerRef.current -= dt / 60;
         ui.setBonusTimeLeft(refs.bonusTimerRef.current);
         
         if (refs.bonusTimerRef.current <= 0) {
@@ -168,8 +171,16 @@ export const updateGame = (
     
     player.x = Math.cos(player.angle) * player.radius;
     player.y = Math.sin(player.angle) * player.radius;
-    player.trail.push({ x: player.x, y: player.y });
-    if (player.trail.length > PLAYER_CONFIG.trailLength) player.trail.shift();
+
+    // --- Trail Logic Update for Framerate Independence ---
+    player.trailAccumulator += dt;
+    if (player.trailAccumulator >= 1.0) {
+        player.trail.push({ x: player.x, y: player.y });
+        if (player.trail.length > PLAYER_CONFIG.trailLength) player.trail.shift();
+        player.trailAccumulator -= 1.0;
+        // Cap accumulator to prevent runaway loops on huge lag spikes
+        if (player.trailAccumulator > 1.0) player.trailAccumulator = 0;
+    }
 
     // --- CAMERA LOGIC ---
     const { width, height } = refs.dimensions.current;

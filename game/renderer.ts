@@ -6,6 +6,26 @@
 import { GameRefs } from '../types';
 import { COLORS, CENTER_SAFE_LIMIT, CENTER_DEATH_LIMIT } from '../constants';
 
+// Helper for blinking/fading effects when buffs are expiring
+const getBuffVisualState = (timeLeft: number) => {
+    // 180 frames = approx 3 seconds
+    if (timeLeft > 180) return { opacity: 1.0, pulse: 1.0 };
+    
+    // Fast blinking when < 1.5s (90 frames)
+    const speed = timeLeft < 90 ? 0.04 : 0.015; 
+    const wave = Math.sin(Date.now() * speed);
+    
+    // Opacity oscillates to indicate instability
+    // Range: 0.3 to 1.0
+    const opacity = 0.3 + 0.7 * (0.5 + 0.5 * wave);
+    
+    // Slight scale pulse to make it look unstable
+    // Range: 0.95 to 1.05
+    const pulse = 1.0 + 0.05 * wave;
+    
+    return { opacity, pulse };
+};
+
 export const drawGame = (refs: GameRefs) => {
     const canvas = refs.canvasRef.current; if (!canvas) return;
     const ctx = canvas.getContext('2d'); if (!ctx) return;
@@ -99,28 +119,188 @@ export const drawGame = (refs: GameRefs) => {
 
     // Player and Effects
     if (refs.gameStateRef.current !== 'GAMEOVER' && refs.gameStateRef.current !== 'DYING') {
+        const time = Date.now();
+        
+        // Get visual states for buffs (blinking/pulsing)
+        // NOTE: Dash visual state is deliberately ignored in favor of the "shrinking bar" logic
+        const { opacity: shieldOp, pulse: shieldPulse } = getBuffVisualState(player.shieldTime);
+        const { opacity: magnetOp, pulse: magnetPulse } = getBuffVisualState(player.magnetTime);
+
         // Danger Line
         if (player.radius < 3000) { ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(player.x, player.y); ctx.strokeStyle = `rgba(0, 210, 255, ${Math.max(0, (0.2 - player.radius / 3000))})`; ctx.stroke(); }
         
-        // Trail
-        if (player.trail.length > 1) { ctx.beginPath(); ctx.moveTo(player.trail[0].x, player.trail[0].y); player.trail.forEach(t => ctx.lineTo(t.x, t.y)); ctx.strokeStyle = player.dashTime > 0 ? COLORS.dash : player.color; ctx.lineWidth = player.size * (player.dashTime > 0 ? 1.5 : 0.8); ctx.stroke(); }
-        
-        // Shield Effect
-        if (player.shieldTime > 0) {
-            ctx.save(); ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 5, 0, Math.PI * 2);
-            ctx.strokeStyle = COLORS.shield; ctx.lineWidth = 2; ctx.shadowColor = COLORS.shield; ctx.shadowBlur = 10;
-            ctx.globalAlpha = 0.6 + Math.sin(Date.now() * 0.01) * 0.2; ctx.stroke(); ctx.restore();
+        // Trail Logic
+        if (player.trail.length > 1) { 
+            // 1. Draw Base Trail (Always visible underneath)
+            // This ensures when orange fades, blue is there.
+            ctx.beginPath(); 
+            ctx.moveTo(player.trail[0].x, player.trail[0].y); 
+            player.trail.forEach(t => ctx.lineTo(t.x, t.y)); 
+            ctx.strokeStyle = player.color; 
+            ctx.lineWidth = player.size * 0.8; 
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke(); 
+            
+            // 2. Draw Dash Trail (Overlay)
+            // Length shrinks as timer decreases
+            if (player.dashTime > 0) {
+                const maxDashTime = 150; // Defined in physics.ts
+                const ratio = Math.max(0, Math.min(1, player.dashTime / maxDashTime));
+                
+                // Calculate number of visible points from the HEAD (newest) of the trail
+                const visiblePoints = Math.ceil(player.trail.length * ratio);
+                
+                if (visiblePoints >= 2) {
+                    // trail is [oldest, ..., newest]
+                    // slice from end
+                    const startIndex = player.trail.length - visiblePoints;
+                    const dashTrail = player.trail.slice(startIndex);
+
+                    ctx.beginPath();
+                    ctx.moveTo(dashTrail[0].x, dashTrail[0].y);
+                    dashTrail.forEach(t => ctx.lineTo(t.x, t.y));
+                    
+                    ctx.strokeStyle = COLORS.dash; 
+                    ctx.lineWidth = player.size; // Slightly thicker
+                    ctx.shadowColor = COLORS.dash;
+                    ctx.shadowBlur = 15; // Steady glow, no flicker
+                    ctx.stroke();
+                    ctx.shadowBlur = 0; // Reset
+                }
+            }
         }
         
-        // Magnet Effect
+        ctx.save();
+        ctx.translate(player.x, player.y);
+
+        // 1. MAGNET EFFECT (Gravity Well)
         if (player.magnetTime > 0) {
-            ctx.save(); ctx.beginPath(); ctx.arc(player.x, player.y, player.size + 20, 0, Math.PI * 2);
-            ctx.strokeStyle = COLORS.magnet; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
-            ctx.lineDashOffset = -Date.now() * 0.02; ctx.globalAlpha = 0.5; ctx.stroke(); ctx.restore();
+            ctx.save();
+            ctx.scale(magnetPulse, magnetPulse);
+            
+            // Effect A: Inward sucking ripples
+            const numRings = 3;
+            const maxR = player.size + 60;
+            ctx.strokeStyle = COLORS.magnet;
+            ctx.lineWidth = 1.5;
+            
+            for(let i=0; i<numRings; i++) {
+                const phase = (time / 500 + i / numRings) % 1; 
+                const r = maxR * (1 - phase);
+                const ringOp = Math.sin(phase * Math.PI); 
+                
+                ctx.beginPath();
+                ctx.arc(0, 0, Math.max(0, r), 0, Math.PI*2);
+                ctx.globalAlpha = magnetOp * ringOp * 0.8;
+                ctx.stroke();
+            }
+
+            // Effect B: Outer Dashed Border
+            ctx.beginPath();
+            ctx.arc(0, 0, maxR, 0, Math.PI * 2);
+            ctx.strokeStyle = COLORS.magnet;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 10]);
+            ctx.lineDashOffset = time * 0.05;
+            ctx.globalAlpha = magnetOp;
+            ctx.stroke();
+
+            // Effect C: Core tint
+            ctx.beginPath();
+            ctx.arc(0, 0, maxR, 0, Math.PI * 2);
+            ctx.fillStyle = COLORS.magnet;
+            ctx.globalAlpha = magnetOp * 0.1;
+            ctx.fill();
+
+            ctx.restore();
         }
 
-        // Player Body
-        ctx.beginPath(); ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2); ctx.fillStyle = player.dashTime > 0 ? '#fff' : player.color; ctx.fill();
+        // 2. DASH EFFECT (Solid Ring, No Flashing)
+        if (player.dashTime > 0) {
+            ctx.save();
+            // No pulse scaling for stability
+            
+            // Simple Rotating Dashed Ring
+            const ringSize = player.size + 10;
+            ctx.beginPath();
+            ctx.arc(0, 0, ringSize, 0, Math.PI * 2);
+            ctx.strokeStyle = COLORS.dash;
+            ctx.lineWidth = 2.5;
+            ctx.setLineDash([12, 12]);
+            ctx.lineDashOffset = -time * 0.15; // Fast rotation for speed feel
+            
+            // Solid opacity for stability
+            ctx.globalAlpha = 0.8;
+            ctx.stroke();
+
+            // Subtle fill
+            ctx.beginPath();
+            ctx.arc(0, 0, player.size + 5, 0, Math.PI * 2);
+            ctx.fillStyle = COLORS.dash;
+            ctx.globalAlpha = 0.1;
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        // 3. SHIELD EFFECT (Tech Hexagon Field)
+        if (player.shieldTime > 0) {
+            ctx.save();
+            ctx.scale(shieldPulse, shieldPulse);
+            
+            const r = player.size + 18;
+            
+            // Hexagon Shape
+            const sides = 6;
+            ctx.beginPath();
+            const angleOffset = time * 0.01;
+            for (let i = 0; i <= sides; i++) {
+                const theta = (i / sides) * 2 * Math.PI + angleOffset;
+                const x = r * Math.cos(theta);
+                const y = r * Math.sin(theta);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            
+            // Fill
+            ctx.fillStyle = COLORS.shield;
+            ctx.globalAlpha = shieldOp * 0.15;
+            ctx.fill();
+            
+            // Outer Border
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = COLORS.shield;
+            ctx.globalAlpha = shieldOp * 0.8;
+            ctx.stroke();
+            
+            // Inner Circle Accent
+            ctx.beginPath();
+            ctx.arc(0, 0, r - 5, 0, Math.PI * 2);
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = '#ffffff';
+            ctx.globalAlpha = shieldOp * 0.4;
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // 4. PLAYER BODY
+        ctx.beginPath(); 
+        ctx.arc(0, 0, player.size, 0, Math.PI * 2); 
+        
+        // Simple body, no extra flash
+        if (player.dashTime > 0) {
+            ctx.fillStyle = '#ffffff'; // White core for dash
+            ctx.shadowColor = COLORS.dash;
+            ctx.shadowBlur = 10; // Steady glow
+        } else {
+            ctx.fillStyle = player.color;
+            ctx.shadowBlur = 0;
+        }
+        ctx.fill();
+        
+        ctx.restore();
     }
     ctx.restore();
 };

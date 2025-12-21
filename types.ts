@@ -30,6 +30,7 @@ export interface Player {
   magnetCount: number; // Track number of orbs absorbed by current magnet
   dashTime: number; // Duration for the dash power-up
   centerTime: number; // Time spent at the center hub
+  trailAccumulator: number; // Accumulator for consistent trail length across refresh rates
 }
 
 export interface Entity {
