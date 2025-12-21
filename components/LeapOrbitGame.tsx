@@ -233,10 +233,30 @@ export const LeapOrbitGame: React.FC = () => {
       setScoreDisplay, setOrbitCountDisplay, setBuffs, setCenterWarning, setBonusTimeLeft, setRunCoins
   }), []);
 
-  // --- Main Loop ---
-  const loop = useCallback(() => {
-      updateGame(refs, gameActions, uiSetters);
+  // --- Main Loop with Delta Time ---
+  const lastFrameTime = useRef<number>(0);
+
+  const loop = useCallback((timestamp: number) => {
+      if (!lastFrameTime.current) lastFrameTime.current = timestamp;
+
+      // Calculate elapsed time since last frame
+      const delta = timestamp - lastFrameTime.current;
+      lastFrameTime.current = timestamp;
+
+      // Convert to "Delta Time" factor relative to 60 FPS
+      // If running at 60 FPS, dt = 1.0
+      // If running at 120 FPS, dt = 0.5
+      let dt = delta / (1000 / 60);
+
+      // Cap dt to prevent massive jumps if tab was inactive (e.g. max 4 frames skip)
+      if (dt > 4) dt = 4;
+
+      // Update Game Logic with dt
+      updateGame(refs, gameActions, uiSetters, dt);
+
+      // Render
       drawGame(refs);
+      
       frameId.current = requestAnimationFrame(loop);
   }, [refs, gameActions, uiSetters]);
 
@@ -251,7 +271,11 @@ export const LeapOrbitGame: React.FC = () => {
           }
       };
       window.addEventListener('resize', handleResize); handleResize();
+      
+      // Reset loop timing
+      lastFrameTime.current = 0;
       frameId.current = requestAnimationFrame(loop);
+
       return () => { window.removeEventListener('resize', handleResize); cancelAnimationFrame(frameId.current); };
   }, [loop, refs]);
 

@@ -1,12 +1,13 @@
-export const GAME_VERSION = "v8.7.0-refactor";
+
+export const GAME_VERSION = "v8.7.1-enhanced";
 
 export const PLAYER_CONFIG = {
   baseRadius: 100,
   accelOut: 0,    
-  gravity: 0.125, 
+  gravity: 0.2, 
   drag: 0.94,     
-  rotSpeed: 0.01, 
-  dashRotSpeed: 0.03, 
+  rotSpeed: 0.04, 
+  dashRotSpeed: 0.08, 
   size: 14,
   trailLength: 25,
 };
@@ -29,4 +30,4 @@ export const COLORS = {
 };
 
 export const CENTER_SAFE_LIMIT = 300; 
-export const CENTER_DEATH_LIMIT = 480; 
+export const CENTER_DEATH_LIMIT = 480;

@@ -29,29 +29,52 @@ export interface UiSetters {
 export const updateGame = (
     refs: GameRefs,
     actions: GameActions,
-    ui: UiSetters
+    ui: UiSetters,
+    dt: number // Delta Time factor (1.0 = 60fps)
 ) => {
     if (refs.gameStateRef.current === 'START') return;
 
     // --- DYING STATE ---
     if (refs.gameStateRef.current === 'DYING') {
-        refs.deathTimerRef.current--;
+        refs.deathTimerRef.current -= 1 * dt;
         const player = refs.playerRef.current;
-        refs.cameraRef.current.x += (player.x - refs.cameraRef.current.x) * 0.03;
-        refs.cameraRef.current.y += (player.y - refs.cameraRef.current.y) * 0.03;
-        refs.cameraRef.current.zoom += (3.8 - refs.cameraRef.current.zoom) * 0.015;
-        refs.particlesRef.current.forEach((p, i) => { p.x += p.vx * 0.25; p.y += p.vy * 0.25; p.life -= 0.005; if (p.life <= 0) refs.particlesRef.current.splice(i, 1); });
-        refs.shockwavesRef.current.forEach((sw, i) => { sw.radius += 2.5; sw.life -= 0.006; if (sw.life <= 0) refs.shockwavesRef.current.splice(i, 1); });
-        if (refs.shake.current > 0) refs.shake.current *= 0.98;
+        refs.cameraRef.current.x += (player.x - refs.cameraRef.current.x) * 0.03 * dt;
+        refs.cameraRef.current.y += (player.y - refs.cameraRef.current.y) * 0.03 * dt;
+        refs.cameraRef.current.zoom += (3.8 - refs.cameraRef.current.zoom) * 0.015 * dt;
+        refs.particlesRef.current.forEach((p, i) => { 
+            p.x += p.vx * 0.25 * dt; 
+            p.y += p.vy * 0.25 * dt; 
+            p.life -= 0.005 * dt; 
+            if (p.life <= 0) refs.particlesRef.current.splice(i, 1); 
+        });
+        refs.shockwavesRef.current.forEach((sw, i) => { 
+            sw.radius += 2.5 * dt; 
+            sw.life -= 0.006 * dt; 
+            if (sw.life <= 0) refs.shockwavesRef.current.splice(i, 1); 
+        });
+        if (refs.shake.current > 0) refs.shake.current *= Math.pow(0.98, dt);
         if (refs.deathTimerRef.current <= 0) actions.handleGameOver();
         return;
     }
 
     // --- GAMEOVER STATE ---
     if (refs.gameStateRef.current === 'GAMEOVER') {
-        refs.particlesRef.current.forEach((p, i) => { p.x += p.vx * 0.5; p.y += p.vy * 0.5; p.life -= 0.01; if (p.life <= 0) refs.particlesRef.current.splice(i, 1); });
-        refs.shockwavesRef.current.forEach((sw, i) => { sw.radius += 2; sw.life -= 0.01; if (sw.life <= 0) refs.shockwavesRef.current.splice(i, 1); });
-        refs.floatingTextsRef.current.forEach((ft, i) => { ft.y += ft.vy * 0.5; ft.life -= 0.01; if (ft.life <= 0) refs.floatingTextsRef.current.splice(i, 1); });
+        refs.particlesRef.current.forEach((p, i) => { 
+            p.x += p.vx * 0.5 * dt; 
+            p.y += p.vy * 0.5 * dt; 
+            p.life -= 0.01 * dt; 
+            if (p.life <= 0) refs.particlesRef.current.splice(i, 1); 
+        });
+        refs.shockwavesRef.current.forEach((sw, i) => { 
+            sw.radius += 2 * dt; 
+            sw.life -= 0.01 * dt; 
+            if (sw.life <= 0) refs.shockwavesRef.current.splice(i, 1); 
+        });
+        refs.floatingTextsRef.current.forEach((ft, i) => { 
+            ft.y += ft.vy * 0.5 * dt; 
+            ft.life -= 0.01 * dt; 
+            if (ft.life <= 0) refs.floatingTextsRef.current.splice(i, 1); 
+        });
         return;
     }
 
@@ -61,15 +84,13 @@ export const updateGame = (
     const currentTotalScore = calculateCurrentTotalScore(refs.gameEndTimeRef.current, refs.gameStartTimeRef.current, refs.orbitRef.current, refs.actionScoreRef.current);
     
     if (refs.isBonusTimeRef.current) {
-        refs.bonusTimerRef.current--;
-        if (refs.bonusTimerRef.current % 10 === 0) ui.setBonusTimeLeft(refs.bonusTimerRef.current);
+        refs.bonusTimerRef.current -= 1 * dt;
+        ui.setBonusTimeLeft(refs.bonusTimerRef.current);
         
         if (refs.bonusTimerRef.current <= 0) {
             actions.endBonusMode();
         }
     } else {
-        // We set score display here. In original it was checked against state to prevent render thrashing,
-        // but react setters often batch or have built-in equality checks. We will call it.
         ui.setScoreDisplay(currentTotalScore);
         
         const nextThreshold = refs.lastBonusThresholdRef.current + BONUS_SCORE_THRESHOLD;
@@ -81,25 +102,35 @@ export const updateGame = (
 
     // Buffs
     if (player.shieldTime > 0) {
-        if (player.shieldTime === 1) triggerHaptic([40, 30, 15]); 
-        player.shieldTime--;
+        if (Math.ceil(player.shieldTime) === 1 && Math.ceil(player.shieldTime - dt) <= 0) triggerHaptic([40, 30, 15]); 
+        player.shieldTime -= 1 * dt;
     }
-    if (player.magnetTime > 0) player.magnetTime--;
-    if (player.dashTime > 0) player.dashTime--;
+    if (player.magnetTime > 0) player.magnetTime -= 1 * dt;
+    if (player.dashTime > 0) player.dashTime -= 1 * dt;
     const hasShield = player.shieldTime > 0;
     const hasMagnet = player.magnetTime > 0;
     const hasDash = player.dashTime > 0;
 
-    // Movement
+    // Movement Physics
+    // Calculate dynamic rotation speed:
+    // Base Speed * Sqrt(BaseRadius / CurrentRadius)
+    // This creates a smooth falloff where higher altitude = slower rotation
+    const altitudeDamping = Math.sqrt(player.baseRadius / Math.max(player.baseRadius, player.radius));
+    
     if (hasDash) {
-        player.angle += PLAYER_CONFIG.dashRotSpeed;
-        player.rVelocity *= 0.5; 
+        // Dash maintains high speed but still feels the altitude slightly
+        const dashSpeed = PLAYER_CONFIG.dashRotSpeed * altitudeDamping;
+        player.angle += dashSpeed * dt;
+        player.rVelocity *= Math.pow(0.5, dt); 
     } else {
-        if (refs.isPressing.current) player.angle += player.rotSpeed; 
-        player.rVelocity -= player.gravity; 
+        if (refs.isPressing.current) {
+             const currentRotSpeed = PLAYER_CONFIG.rotSpeed * altitudeDamping;
+             player.angle += currentRotSpeed * dt; 
+        }
+        player.rVelocity -= player.gravity * dt; 
     }
-    player.rVelocity *= player.drag; 
-    player.radius += player.rVelocity;
+    player.rVelocity *= Math.pow(player.drag, dt); 
+    player.radius += player.rVelocity * dt;
 
     // Orbit & Hub Logic
     const currentOrbitNum = Math.floor(player.angle / (Math.PI * 2)) + 1; 
@@ -125,7 +156,7 @@ export const updateGame = (
             actions.endBonusMode();
         }
 
-        player.centerTime++;
+        player.centerTime += 1 * dt;
         if (player.centerTime > CENTER_SAFE_LIMIT) {
             ui.setCenterWarning(true);
             refs.shake.current = (player.centerTime - CENTER_SAFE_LIMIT) / 20; 
@@ -140,7 +171,7 @@ export const updateGame = (
     player.trail.push({ x: player.x, y: player.y });
     if (player.trail.length > PLAYER_CONFIG.trailLength) player.trail.shift();
 
-    // --- IMPROVED CAMERA LOGIC FOR MOBILE ---
+    // --- CAMERA LOGIC ---
     const { width, height } = refs.dimensions.current;
     
     const fitDimension = Math.min(width, height);
@@ -150,9 +181,9 @@ export const updateGame = (
         Math.min(1.2, fitDimension / requiredViewDiameter)
     );
 
-    refs.cameraRef.current.x += (player.x * 0.5 - refs.cameraRef.current.x) * 0.08;
-    refs.cameraRef.current.y += (player.y * 0.5 - refs.cameraRef.current.y) * 0.08;
-    refs.cameraRef.current.zoom += (targetZoom - refs.cameraRef.current.zoom) * 0.05;
+    refs.cameraRef.current.x += (player.x * 0.5 - refs.cameraRef.current.x) * 0.08 * dt;
+    refs.cameraRef.current.y += (player.y * 0.5 - refs.cameraRef.current.y) * 0.08 * dt;
+    refs.cameraRef.current.zoom += (targetZoom - refs.cameraRef.current.zoom) * 0.05 * dt;
 
     spawnEntity(refs);
     spawnInnerAmbience(refs);
@@ -164,9 +195,9 @@ export const updateGame = (
       if (e.isSafety && refs.orbitRef.current >= 2) {
           e.dist = (e.baseDist || e.dist) + Math.sin(now * 0.002 + (e.wobblePhase || 0)) * Math.min(50, 15 + (refs.orbitRef.current - 2) * 5);
       }
-      if (e.scale < e.maxScale) e.scale += 0.125; 
-      e.angle += e.moveSpeed;
-      if (e.type === 'enemy') e.rotation += 0.06;
+      if (e.scale < e.maxScale) e.scale += 0.125 * dt; 
+      e.angle += e.moveSpeed * dt;
+      if (e.type === 'enemy') e.rotation += 0.06 * dt;
 
       let magnetSucked = false;
       // Magnet affects Score AND Coins
@@ -174,11 +205,12 @@ export const updateGame = (
         const dx = player.x - Math.cos(e.angle) * e.dist;
         const dy = player.y - Math.sin(e.angle) * e.dist;
         if ((dx * dx + dy * dy) < 100000) {
-            e.dist += (player.radius - e.dist) * (e.isSafety ? 0.05 : 0.2);
+            // Apply dt to magnet pulling force
+            e.dist += (player.radius - e.dist) * (e.isSafety ? 0.05 : 0.2) * dt;
             let diffAngle = player.angle - e.angle;
             while (diffAngle > Math.PI) diffAngle -= Math.PI * 2;
             while (diffAngle < -Math.PI) diffAngle += Math.PI * 2;
-            e.angle += diffAngle * (e.isSafety ? 0.05 : 0.15);
+            e.angle += diffAngle * (e.isSafety ? 0.05 : 0.15) * dt;
             if ((dx * dx + dy * dy) < 3000) magnetSucked = true;
         }
       }
@@ -240,14 +272,22 @@ export const updateGame = (
     }
 
     refs.particlesRef.current.forEach((p, i) => {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.life -= 0.038;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.life -= 0.038 * dt;
       if (p.life <= 0) refs.particlesRef.current.splice(i, 1);
     });
-    refs.shockwavesRef.current.forEach((sw, i) => { sw.radius += 15; sw.life -= 0.038; if (sw.life <= 0) refs.shockwavesRef.current.splice(i, 1); });
-    refs.floatingTextsRef.current.forEach((ft, i) => { ft.y += ft.vy; ft.life -= 0.025; if (ft.life <= 0) refs.floatingTextsRef.current.splice(i, 1); });
-    if (refs.shake.current > 0) refs.shake.current *= 0.9;
+    refs.shockwavesRef.current.forEach((sw, i) => { 
+        sw.radius += 15 * dt; 
+        sw.life -= 0.038 * dt; 
+        if (sw.life <= 0) refs.shockwavesRef.current.splice(i, 1); 
+    });
+    refs.floatingTextsRef.current.forEach((ft, i) => { 
+        ft.y += ft.vy * dt; 
+        ft.life -= 0.025 * dt; 
+        if (ft.life <= 0) refs.floatingTextsRef.current.splice(i, 1); 
+    });
+    if (refs.shake.current > 0) refs.shake.current *= Math.pow(0.9, dt);
     
     ui.setBuffs({ shield: player.shieldTime, magnet: player.magnetTime, dash: player.dashTime });
 };

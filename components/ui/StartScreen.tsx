@@ -25,8 +25,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   onShopOpen
 }) => {
   return (
-    // Mobile: Add padding for safe areas. Desktop: Reset padding (md:pt-0, md:pb-0) as layout handles it via p-10.
-    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center overflow-hidden bg-black/20 text-white font-sans selection:bg-cyan-500/30 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] md:pt-0 md:pb-0">
+    // Changed background to opaque dark theme to separate from game view
+    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center overflow-hidden bg-[#050505] text-white font-sans selection:bg-cyan-500/30 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] md:pt-0 md:pb-0">
       
       {/* --- CSS for Custom Animations --- */}
       <style>{`
@@ -34,9 +34,17 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           0% { transform: perspective(500px) rotateX(60deg) translateY(0); }
           100% { transform: perspective(500px) rotateX(60deg) translateY(40px); }
         }
-        .animate-grid {
-          animation: grid-move 1s linear infinite;
+        @keyframes float-particle {
+          0%, 100% { transform: translateY(0) scale(1); opacity: 0.3; }
+          50% { transform: translateY(-20px) scale(1.2); opacity: 0.8; }
         }
+        .animate-grid {
+          animation: grid-move 2s linear infinite;
+        }
+        .animate-float-1 { animation: float-particle 4s ease-in-out infinite; }
+        .animate-float-2 { animation: float-particle 5s ease-in-out infinite 1s; }
+        .animate-float-3 { animation: float-particle 6s ease-in-out infinite 2s; }
+        
         .clip-corner-br {
           clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
         }
@@ -47,19 +55,39 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           -webkit-text-stroke: 1px rgba(34, 211, 238, 0.5);
           color: transparent;
         }
+        /* Background decorative elements */
+        .bg-tech-pattern {
+            background-image: radial-gradient(rgba(6,182,212,0.1) 1px, transparent 1px);
+            background-size: 30px 30px;
+        }
       `}</style>
 
-      {/* --- BACKGROUND LAYER --- */}
-      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-        {/* Retro-wave Grid Floor */}
-        <div className="absolute bottom-[-15%] left-[-50%] w-[200%] h-[60%] opacity-20 animate-grid origin-bottom">
-           <div className="w-full h-full bg-[linear-gradient(to_right,rgba(6,182,212,0.3)_1px,transparent_1px),linear-gradient(to_bottom,rgba(6,182,212,0.3)_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:linear-gradient(to_top,black_40%,transparent_100%)]"></div>
+      {/* --- SEPARATE BACKGROUND DESIGN --- */}
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden select-none">
+        
+        {/* 1. Deep Space Base */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#020617] via-[#050505] to-[#0a0a0a]"></div>
+        
+        {/* 2. Top Spotlight / Sun effect */}
+        <div className="absolute top-[-20%] left-1/2 -translate-x-1/2 w-[80%] h-[50%] bg-cyan-900/20 blur-[100px] rounded-full"></div>
+
+        {/* 3. Tech Dots Pattern */}
+        <div className="absolute inset-0 bg-tech-pattern opacity-30"></div>
+
+        {/* 4. Retro-wave Grid Floor (Enhanced visibility) */}
+        <div className="absolute bottom-[-25%] left-[-50%] w-[200%] h-[80%] opacity-40 animate-grid origin-bottom">
+           <div className="w-full h-full bg-[linear-gradient(to_right,rgba(34,211,238,0.2)_1px,transparent_1px),linear-gradient(to_bottom,rgba(34,211,238,0.2)_1px,transparent_1px)] bg-[size:50px_50px] [mask-image:linear-gradient(to_top,black_60%,transparent_100%)]"></div>
         </div>
         
-        {/* Vignette & Noise */}
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.8)_100%)]"></div>
-        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent"></div>
-        <div className="absolute bottom-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent"></div>
+        {/* 5. Decorative Floating Particles (CSS Only) */}
+        <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-cyan-500 rounded-full blur-[2px] animate-float-1"></div>
+        <div className="absolute top-1/3 right-1/4 w-1.5 h-1.5 bg-purple-500 rounded-full blur-[1px] animate-float-2"></div>
+        <div className="absolute bottom-1/3 left-1/3 w-1 h-1 bg-white rounded-full blur-[0px] animate-float-3"></div>
+
+        {/* 6. Vignette & Border Lines */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.6)_100%)]"></div>
+        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent"></div>
+        <div className="absolute bottom-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent"></div>
       </div>
 
       {/* --- HUD: TOP LEFT (Profile) --- */}
