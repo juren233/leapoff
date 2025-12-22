@@ -53,8 +53,8 @@ class AudioManager {
         this.bgmGain.connect(this.ctx.destination);
 
         try {
-            // 加载根目录下的 bgm.mp3
-            const response = await fetch('./bgm.mp3');
+            // 修改路径：加载 assets 目录下的 bgm.mp3
+            const response = await fetch('assets/bgm.mp3');
             if (!response.ok) throw new Error("BGM File not found");
             
             const arrayBuffer = await response.arrayBuffer();
