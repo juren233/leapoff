@@ -1,5 +1,5 @@
 
-export const GAME_VERSION = "v8.9.0-SettingsSupport";
+export const GAME_VERSION = "v8.9.1-SettingsSupport";
 
 export const PLAYER_CONFIG = {
   baseRadius: 100,

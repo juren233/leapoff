@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Volume2, VolumeX, Music, Check, Palette, Smartphone } from 'lucide-react';
+import { X, Volume2, VolumeX, Music, Check, Smartphone, Settings as SettingsIcon } from 'lucide-react';
 import { GameSettings, ThemeType } from '../../types';
 
 interface SettingsModalProps {
@@ -39,27 +39,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     // Responsive padding wrapper matched to GameOverModal
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 pt-[max(6rem,calc(env(safe-area-inset-top)+4rem))] pb-[max(6rem,calc(env(safe-area-inset-bottom)+4rem))] md:p-4 animate-in fade-in touch-pan-y overscroll-contain">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 pt-[max(8rem,calc(env(safe-area-inset-top)+6rem))] pb-[max(8rem,calc(env(safe-area-inset-bottom)+6rem))] md:p-4 animate-in fade-in touch-pan-y overscroll-contain">
       
       {/* 
          Container Sizing: 
          - Mobile: w-full max-w-sm
-         - Desktop: md:max-w-3xl (Wide window mode)
+         - Desktop: md:max-w-3xl
+         - Added 'text-center md:text-left' to match GameOverModal typography alignment
       */}
-      <div className="w-full max-w-sm md:max-w-3xl bg-neutral-900 border border-white/10 rounded-3xl p-6 md:p-10 shadow-2xl relative max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
+      <div className="w-full max-w-sm md:max-w-3xl bg-neutral-900 border border-white/10 rounded-3xl p-6 md:p-10 shadow-2xl relative max-h-[80vh] md:max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] text-center md:text-left">
         
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6 md:mb-10">
-          <h2 className="text-xl md:text-3xl font-bold text-white tracking-wider flex items-center gap-3">
-            <span className="w-1.5 h-6 md:h-8 bg-cyan-500 rounded-full"></span>
-            设置
-          </h2>
-          <button 
-            onClick={onClose} 
-            className="p-2 -mr-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-full transition-colors"
-          >
-            <X size={24} />
-          </button>
+        {/* Close Button - Absolute positioning for cleaner header flow */}
+        <button 
+          onClick={onClose} 
+          className="absolute top-6 right-6 p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-full transition-colors z-10"
+        >
+          <X size={24} />
+        </button>
+
+        {/* Header - Matching GameOverModal style (Icon Top + Title + Subtitle) */}
+        <div className="flex flex-col items-center md:items-start mb-6 md:mb-10">
+            <div className="inline-block p-3 md:p-4 rounded-full bg-cyan-500/10 mb-4 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+              <SettingsIcon size={32} className="text-cyan-500 md:w-10 md:h-10" />
+            </div>
+            
+            <h2 className="text-2xl md:text-4xl font-black text-white mb-1 tracking-tight">系统设置</h2>
+            <p className="text-slate-500 text-xs font-mono uppercase tracking-[0.2em]">SETTINGS</p>
         </div>
 
         {/* 
@@ -69,9 +74,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         */}
         <div className="flex flex-col md:flex-row gap-8 md:gap-12">
           
-          {/* LEFT COLUMN: Audio & Haptics */}
+          {/* LEFT COLUMN: Theme Section */}
           <div className="flex-1 space-y-4">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">
+             <div className="flex items-center justify-center md:justify-start mb-3">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                  主题风格（预览/未实装）
+                </h3>
+             </div>
+             
+             {/* Theme Grid */}
+             <div className="grid grid-cols-2 gap-3 md:gap-4">
+                {themes.map((theme) => (
+                  <button
+                    key={theme.id}
+                    onClick={() => setTheme(theme.id)}
+                    className={`relative p-3 md:p-4 rounded-xl border transition-all duration-200 flex flex-col md:flex-row items-center md:items-start gap-3 overflow-hidden group h-full
+                      ${settings.theme === theme.id 
+                        ? 'bg-white/10 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)]' 
+                        : 'bg-black/40 border-white/5 hover:bg-white/5 hover:border-white/10'
+                      }`}
+                  >
+                    <div className={`w-full md:w-10 h-12 md:h-10 rounded-lg ${theme.color} shadow-lg flex items-center justify-center shrink-0 mb-1 md:mb-0`}>
+                       {settings.theme === theme.id && <Check size={20} className="text-white drop-shadow-md" />}
+                    </div>
+                    
+                    <div className="flex flex-col items-center md:items-start">
+                        <span className={`text-xs md:text-sm font-bold ${settings.theme === theme.id ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`}>
+                          {theme.name}
+                        </span>
+                        <span className="text-[9px] text-slate-600 md:hidden">点击应用</span>
+                    </div>
+                    
+                    {/* Active Indicator Corner */}
+                    {settings.theme === theme.id && (
+                      <div className="absolute top-0 right-0 w-3 h-3 md:w-4 md:h-4 bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.8)]" style={{ clipPath: 'polygon(100% 0, 0 0, 100% 100%)' }}></div>
+                    )}
+                  </button>
+                ))}
+             </div>
+             
+             <div className="text-[10px] text-slate-600 mt-2 px-1 leading-relaxed hidden md:block">
+                选择不同的主题将改变游戏界面的主色调与粒子特效氛围。
+                当前功能尚未实装，仅供预览！
+             </div>
+          </div>
+
+          {/* RIGHT COLUMN: Audio & Haptics */}
+          <div className="flex-1 space-y-4">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 text-center md:text-left">
               音频与震动
             </h3>
             
@@ -122,50 +172,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform duration-300 ${settings.vibrationEnabled ? 'translate-x-6' : 'translate-x-0'}`}></div>
               </button>
             </div>
-          </div>
-
-          {/* RIGHT COLUMN: Theme Section */}
-          <div className="flex-1 space-y-4">
-             <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                  主题风格（未实装）
-                </h3>
-             </div>
-             
-             {/* Use grid-cols-2 for mobile, but on desktop we can keep it 2 or make it block based on preference. 2 cols looks good in the split layout. */}
-             <div className="grid grid-cols-2 gap-3 md:gap-4">
-                {themes.map((theme) => (
-                  <button
-                    key={theme.id}
-                    onClick={() => setTheme(theme.id)}
-                    className={`relative p-3 md:p-4 rounded-xl border transition-all duration-200 flex flex-col md:flex-row items-center md:items-start gap-3 overflow-hidden group h-full
-                      ${settings.theme === theme.id 
-                        ? 'bg-white/10 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)]' 
-                        : 'bg-black/40 border-white/5 hover:bg-white/5 hover:border-white/10'
-                      }`}
-                  >
-                    <div className={`w-full md:w-10 h-12 md:h-10 rounded-lg ${theme.color} shadow-lg flex items-center justify-center shrink-0 mb-1 md:mb-0`}>
-                       {settings.theme === theme.id && <Check size={20} className="text-white drop-shadow-md" />}
-                    </div>
-                    
-                    <div className="flex flex-col items-center md:items-start">
-                        <span className={`text-xs md:text-sm font-bold ${settings.theme === theme.id ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`}>
-                          {theme.name}
-                        </span>
-                        <span className="text-[9px] text-slate-600 md:hidden">点击应用</span>
-                    </div>
-                    
-                    {/* Active Indicator Corner */}
-                    {settings.theme === theme.id && (
-                      <div className="absolute top-0 right-0 w-3 h-3 md:w-4 md:h-4 bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.8)]" style={{ clipPath: 'polygon(100% 0, 0 0, 100% 100%)' }}></div>
-                    )}
-                  </button>
-                ))}
-             </div>
-             
-             <div className="text-[10px] text-slate-600 mt-2 px-1 leading-relaxed hidden md:block">
-                选择不同的主题将改变游戏界面的主色调与粒子特效氛围。
-             </div>
           </div>
 
         </div>
