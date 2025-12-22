@@ -7,6 +7,7 @@ import { GameRefs } from '../types';
 import { PLAYER_CONFIG, COLORS, BONUS_SCORE_THRESHOLD, CENTER_SAFE_LIMIT, CENTER_DEATH_LIMIT } from '../constants';
 import { calculateCurrentTotalScore, createExplosion, createShockwave, spawnFloatingText, triggerHaptic } from './utils';
 import { spawnEntity, spawnInnerAmbience, spawnSafetyRing } from './spawner';
+import { audioManager } from './audio';
 
 // Callbacks interface for actions that need to trigger UI/React changes or specific logic defined in main
 export interface GameActions {
@@ -242,6 +243,10 @@ export const updateGame = (
              refs.entitiesRef.current.splice(i, 1);
         } else if (e.type === 'score') {
           refs.actionScoreRef.current += 10; createExplosion(refs, ex, ey, 'white', 8, 8); spawnFloatingText(refs, ex, ey, "+10", "#ffffff"); 
+          
+          // --- PLAY SOUND HERE ---
+          audioManager.playScore();
+
           if (hasMagnet) {
               player.magnetCount = (player.magnetCount || 0) + 1;
               if (player.magnetCount >= 15) { player.magnetTime = 0; ui.setBuffs({ ...{ shield: player.shieldTime, magnet: 0, dash: player.dashTime } }); }

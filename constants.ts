@@ -1,5 +1,5 @@
 
-export const GAME_VERSION = "v8.7.2-modular";
+export const GAME_VERSION = "v8.8.0-music";
 
 export const PLAYER_CONFIG = {
   baseRadius: 100,

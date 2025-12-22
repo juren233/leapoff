@@ -25,7 +25,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 }) => {
   
   // Helper for Circular Progress Ring
-  const CircularProgress = ({ progress, colorClass, children }: { progress: number, colorClass: string, children: React.ReactNode }) => {
+  const CircularProgress = ({ progress, colorClass, children }: { progress: number, colorClass: string, children?: React.ReactNode }) => {
     // 保持与金币图标容器完全一致的尺寸体系
     const size = 32; 
     const strokeWidth = 3;

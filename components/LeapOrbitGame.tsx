@@ -20,6 +20,7 @@ import { updateGame, GameActions, UiSetters } from '../game/physics';
 import { drawGame } from '../game/renderer';
 import { spawnSafetyRing } from '../game/spawner';
 import { randomRange, formatTime, triggerHaptic, calculateCurrentTotalScore, createExplosion, createShockwave, initStars } from '../game/utils';
+import { audioManager } from '../game/audio';
 
 export const LeapOrbitGame: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -141,6 +142,7 @@ export const LeapOrbitGame: React.FC = () => {
   }, [refs, setUploadStatus]);
 
   const startGame = () => {
+      audioManager.init(); // 初始化音频系统
       initGame();
       gameStateRef.current = 'PLAYING';
       setUiGameState('PLAYING');

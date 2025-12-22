@@ -1,9 +1,9 @@
 /*
- * 文件作用：自定义 Hook，封装游戏数据同步、用户鉴权和 Supabase 交互逻辑
+ * 文件作用：自定义Hook，处理游戏数据的云端同步、本地存储回退及用户认证状态
  * 注意：开头这段注释不得删除！！！
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { SystemStatus, UploadStatus } from '../types';
 
