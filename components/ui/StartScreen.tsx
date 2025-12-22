@@ -111,7 +111,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           </div>
           
           <div className="flex flex-col">
-            <span className="text-[9px] md:text-[10px] text-cyan-500/60 font-mono tracking-widest uppercase mb-0.5">玩家</span>
+            {/* Hide '玩家' label if logged in */}
+            {!session && <span className="text-[9px] md:text-[10px] text-cyan-500/60 font-mono tracking-widest uppercase mb-0.5">玩家</span>}
             {session ? (
               <div className="flex flex-col">
                 <span className="text-xs md:text-lg font-bold text-white tracking-wide uppercase">{session.user.user_metadata.username || '玩家'}</span>
