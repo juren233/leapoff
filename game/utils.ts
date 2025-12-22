@@ -5,6 +5,14 @@
 
 import { GameRefs, Star } from '../types';
 
+// 全局震动开关状态（默认为开启）
+let isVibrationEnabled = true;
+
+// 设置震动开关的方法
+export const setVibrationEnabled = (enabled: boolean) => {
+    isVibrationEnabled = enabled;
+};
+
 export const randomRange = (min: number, max: number) => Math.random() * (max - min) + min;
 
 export const formatTime = (ms: number) => {
@@ -15,6 +23,9 @@ export const formatTime = (ms: number) => {
 };
 
 export const triggerHaptic = (pattern: number | number[]) => {
+    // 检查全局开关
+    if (!isVibrationEnabled) return;
+
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
         try { navigator.vibrate(pattern); } catch(e) {}
     }

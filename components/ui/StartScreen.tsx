@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, LogOut, Coins, Play, Trophy, ShoppingBag, Activity, Wifi, ShieldAlert, Zap, Hexagon } from 'lucide-react';
+import { User, LogOut, Coins, Play, Trophy, ShoppingBag, Activity, Wifi, ShieldAlert, Zap, Hexagon, Settings } from 'lucide-react';
 import { GAME_VERSION } from '../../constants';
 import { SystemStatus } from '../../types';
 
@@ -12,6 +12,7 @@ interface StartScreenProps {
   onAuthOpen: () => void;
   onLeaderboardOpen: () => void;
   onShopOpen: () => void;
+  onSettingsOpen: () => void;
 }
 
 export const StartScreen: React.FC<StartScreenProps> = ({
@@ -22,7 +23,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   onLogout,
   onAuthOpen,
   onLeaderboardOpen,
-  onShopOpen
+  onShopOpen,
+  onSettingsOpen
 }) => {
   return (
     // Changed background to opaque dark theme to separate from game view
@@ -90,18 +92,24 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         <div className="absolute bottom-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent"></div>
       </div>
 
-      {/* --- HUD: TOP LEFT (Profile) --- */}
+      {/* --- HUD: TOP LEFT (Profile / Settings) --- */}
       {/* Mobile: Smaller padding (p-4), Desktop: p-10 */}
       <div className="absolute top-0 left-0 p-4 md:p-10 z-20 flex flex-col items-start gap-3 md:gap-4 animate-in slide-in-from-left duration-700 mt-[env(safe-area-inset-top)] ml-[env(safe-area-inset-left)] md:mt-0 md:ml-0">
         <div className="flex items-center gap-2 md:gap-3">
-          <div className="relative">
+          <div className="relative group cursor-pointer" onClick={onSettingsOpen}>
             {/* Mobile: w-9 h-9, Desktop: w-12 h-12 */}
-            <div className="w-9 h-9 md:w-12 md:h-12 border border-cyan-500/30 bg-cyan-950/30 flex items-center justify-center clip-corner-br">
+            <div className="w-9 h-9 md:w-12 md:h-12 border border-cyan-500/30 bg-cyan-950/30 flex items-center justify-center clip-corner-br transition-all duration-300 group-hover:bg-cyan-500/20 group-hover:border-cyan-400 group-active:scale-95">
                <User size={16} className="text-cyan-400 md:w-5 md:h-5" />
             </div>
             {/* Tech Decoration */}
-            <div className="absolute -bottom-1 -right-1 w-1.5 h-1.5 md:w-2 md:h-2 bg-cyan-500"></div>
+            <div className="absolute -bottom-1 -right-1 w-1.5 h-1.5 md:w-2 md:h-2 bg-cyan-500 transition-all group-hover:bg-cyan-300"></div>
+            
+            {/* Settings Hint Tooltip (Desktop) */}
+            <div className="hidden md:block absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 border border-white/10 rounded text-[10px] text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+              设置
+            </div>
           </div>
+          
           <div className="flex flex-col">
             <span className="text-[9px] md:text-[10px] text-cyan-500/60 font-mono tracking-widest uppercase mb-0.5">玩家</span>
             {session ? (

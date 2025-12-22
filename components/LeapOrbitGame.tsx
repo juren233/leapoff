@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Player, Entity, Particle, Shockwave, FloatingText, LeaderboardEntry, GameStateStatus, GameStats, GameRefs, Star } from '../types';
+import { Player, Entity, Particle, Shockwave, FloatingText, LeaderboardEntry, GameStateStatus, GameStats, GameRefs, Star, GameSettings } from '../types';
 import { supabase } from '../lib/supabase';
 
 // Modular Imports
@@ -14,12 +14,13 @@ import { StartScreen } from './ui/StartScreen';
 import { GameOverModal } from './modals/GameOverModal';
 import { AuthModal } from './modals/AuthModal';
 import { LeaderboardModal } from './modals/LeaderboardModal';
+import { SettingsModal } from './modals/SettingsModal';
 
 import { useGameSync } from '../hooks/useGameSync';
 import { updateGame, GameActions, UiSetters } from '../game/physics';
 import { drawGame } from '../game/renderer';
 import { spawnSafetyRing } from '../game/spawner';
-import { randomRange, formatTime, triggerHaptic, calculateCurrentTotalScore, createExplosion, createShockwave, initStars } from '../game/utils';
+import { randomRange, formatTime, triggerHaptic, calculateCurrentTotalScore, createExplosion, createShockwave, initStars, setVibrationEnabled } from '../game/utils';
 import { audioManager } from '../game/audio';
 
 export const LeapOrbitGame: React.FC = () => {
@@ -37,9 +38,31 @@ export const LeapOrbitGame: React.FC = () => {
   const [runCoins, setRunCoins] = useState(0);
   const [isBonusTimeUI, setIsBonusTimeUI] = useState(false);
   const [bonusTimeLeft, setBonusTimeLeft] = useState(0);
+  
+  // Modals
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Settings State with LocalStorage
+  const [settings, setSettings] = useState<GameSettings>(() => {
+    const saved = localStorage.getItem('leap_orbit_settings');
+    // 默认开启震动
+    return saved ? JSON.parse(saved) : { bgmEnabled: true, sfxEnabled: true, vibrationEnabled: true, theme: 'classic' };
+  });
+
+  // Apply Settings to Audio Manager & Vibration Utility
+  useEffect(() => {
+    audioManager.setBgmMute(!settings.bgmEnabled);
+    audioManager.setSfxMute(!settings.sfxEnabled);
+    
+    // 应用震动设置
+    setVibrationEnabled(settings.vibrationEnabled !== undefined ? settings.vibrationEnabled : true);
+    
+    localStorage.setItem('leap_orbit_settings', JSON.stringify(settings));
+    // TODO: Apply Theme changes if needed in future (requires Renderer update)
+  }, [settings]);
 
   // --- Mutable Game State Refs ---
   const gameStateRef = useRef<GameStateStatus>('START');
@@ -144,6 +167,9 @@ export const LeapOrbitGame: React.FC = () => {
   const startGame = () => {
       // 即使 BGM 已经在播放，这里再调一次 resume 确保万无一失
       audioManager.resume();
+      // 如果设置是开启的，尝试播放（AudioManager内部会检查是否已静音）
+      if (settings.bgmEnabled) audioManager.playBGM();
+
       initGame();
       gameStateRef.current = 'PLAYING';
       setUiGameState('PLAYING');
@@ -291,10 +317,10 @@ export const LeapOrbitGame: React.FC = () => {
 
   // --- Global Audio Starter & Unlocker ---
   useEffect(() => {
-      // 1. 加载组件时，无论如何先调用 playBGM。
-      // 它会开始下载和解码。如果浏览器允许自动播放，声音会直接出来。
-      // 如果不允许，声音会在后台播放进度（无声），直到下面的交互事件触发 resume。
-      audioManager.playBGM();
+      // 1. 加载组件时，根据设置决定是否播放
+      if (settings.bgmEnabled) {
+        audioManager.playBGM();
+      }
 
       // 2. 激进的“解锁”策略：监听所有微小的交互。
       // 只要用户动了鼠标、点了屏幕、或者按了键盘，就立即恢复 AudioContext。
@@ -317,7 +343,7 @@ export const LeapOrbitGame: React.FC = () => {
           window.removeEventListener('keydown', unlockAudio, opts);
           window.removeEventListener('mousemove', unlockAudio, opts);
       };
-  }, []);
+  }, []); // Only on mount
 
   // --- Event Listeners ---
   useEffect(() => {
@@ -366,8 +392,15 @@ export const LeapOrbitGame: React.FC = () => {
         />
         {uiGameState === 'START' && (
             <StartScreen
-                session={session} totalCoins={totalCoins} systemStatus={systemStatus} onStart={startGame}
-                onLogout={handleLogout} onAuthOpen={() => setShowAuthModal(true)} onLeaderboardOpen={openLeaderboard} onShopOpen={openShop}
+                session={session} 
+                totalCoins={totalCoins} 
+                systemStatus={systemStatus} 
+                onStart={startGame}
+                onLogout={handleLogout} 
+                onAuthOpen={() => setShowAuthModal(true)} 
+                onLeaderboardOpen={openLeaderboard} 
+                onShopOpen={openShop}
+                onSettingsOpen={() => setShowSettings(true)}
             />
         )}
         {showAuthModal && (
@@ -379,6 +412,13 @@ export const LeapOrbitGame: React.FC = () => {
         )}
         {showLeaderboard && (
             <LeaderboardModal loading={leaderboardLoading} data={leaderboardData} onClose={() => setShowLeaderboard(false)} />
+        )}
+        {showSettings && (
+            <SettingsModal 
+                settings={settings} 
+                onUpdateSettings={setSettings} 
+                onClose={() => setShowSettings(false)} 
+            />
         )}
         {uiGameState === 'GAMEOVER' && (
             <GameOverModal

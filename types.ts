@@ -130,6 +130,16 @@ export interface GameStats {
   coinsCollected: number;
 }
 
+// Settings Types
+export type ThemeType = 'classic' | 'neon' | 'retro' | 'cyber';
+
+export interface GameSettings {
+  bgmEnabled: boolean;
+  sfxEnabled: boolean;
+  vibrationEnabled: boolean; // 新增震动开关
+  theme: ThemeType;
+}
+
 // Key Mapping for Game Refs used across modules
 export interface GameRefs {
   canvasRef: React.RefObject<HTMLCanvasElement>;
