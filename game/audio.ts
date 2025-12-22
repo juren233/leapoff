@@ -50,7 +50,7 @@ class AudioManager {
 
         // 创建 BGM 音量节点
         this.bgmGain = this.ctx.createGain();
-        this.bgmGain.gain.value = 0.8; // BGM 背景音量
+        this.bgmGain.gain.value = 1.0; // BGM 背景音量
         this.bgmGain.connect(this.ctx.destination);
 
         try {
@@ -134,7 +134,7 @@ class AudioManager {
             osc.frequency.setValueAtTime(440, t); 
             osc.frequency.linearRampToValueAtTime(880, t + 0.15);
 
-            gain.gain.setValueAtTime(0.32, t); 
+            gain.gain.setValueAtTime(0.3, t); 
             gain.gain.linearRampToValueAtTime(0, t + 0.15);
 
             osc.start(t);
