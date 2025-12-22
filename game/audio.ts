@@ -21,40 +21,40 @@ class AudioManager {
                 this.ctx = new AudioContextClass();
             }
         }
-        
-        if (this.ctx) {
-            // 如果上下文处于挂起状态，尝试恢复
-            if (this.ctx.state === 'suspended') {
-                this.ctx.resume().catch(e => {});
-            }
+    }
+
+    // 新增：尝试恢复音频上下文（由外部交互触发）
+    resume() {
+        if (this.ctx && this.ctx.state === 'suspended') {
+            // 捕获错误，防止控制台报红
+            this.ctx.resume().catch(() => {});
         }
     }
 
     // 播放背景音乐：只负责播放 bgm.mp3，且循环
     async playBGM() {
-        // 1. 检查状态：如果正在播放（或正在加载中），直接返回，防止重叠
+        this.init(); // 确保已初始化
+
+        // 1. 检查状态：如果已有 source 正在播放或加载中，直接返回
         if (!this.ctx || this.isMuted || this.isBgmPlaying) return;
         
-        // 2. 关键修复：在异步操作开始前，立即标记为 true。
-        // 这能阻挡在 MP3 加载期间后续触发的调用（例如 React 重复渲染或用户狂点屏幕）。
+        // 立即标记为正在处理，防止重复调用
         this.isBgmPlaying = true;
         
-        // 尝试唤醒 AudioContext
+        // 关键修改：不要在这里 await this.ctx.resume()！
+        // 因为如果没有用户交互，resume 会挂起 Promise，导致后面的 fetch 永远不执行。
+        // 我们直接往下走，先加载数据。等用户动了鼠标，声音自然会出来。
         if (this.ctx.state === 'suspended') {
-            try { await this.ctx.resume(); } catch(e) { 
-                // 如果唤醒失败（极其罕见），重置标记允许重试
-                // 但通常保持 true 防止报错刷屏
-            }
+            this.ctx.resume().catch(() => {}); // 尝试唤醒，但不等待
         }
 
         // 创建 BGM 音量节点
         this.bgmGain = this.ctx.createGain();
-        this.bgmGain.gain.value = 0.3; // BGM 背景音量
+        this.bgmGain.gain.value = 0.8; // BGM 背景音量
         this.bgmGain.connect(this.ctx.destination);
 
         try {
             // 修改路径：使用 raw.githubusercontent.com 域名以解决跨域(CORS)问题
-            // 原链接中的 /raw/refs/heads/main/ 对应 raw 域名下的 /main/
             const response = await fetch('https://raw.githubusercontent.com/juren233/leapoffthings/main/assets/bgm.mp3');
             
             if (!response.ok) {
@@ -62,18 +62,28 @@ class AudioManager {
             }
             
             const arrayBuffer = await response.arrayBuffer();
+            // 注意：decodeAudioData 在某些浏览器也是异步的
             const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
             
-            // 双重检查：如果加载期间被外部强制停止（虽然目前逻辑没有停止），防止僵尸音轨
-            if (!this.isBgmPlaying) return;
+            // 再次检查标记（防止加载过程中被静音）
+            // if (!this.isBgmPlaying) return; 
+
+            // 如果之前有残留的 source，先停止
+            if (this.bgmSource) {
+                try { this.bgmSource.stop(); } catch(e){}
+                this.bgmSource.disconnect();
+            }
 
             this.bgmSource = this.ctx.createBufferSource();
             this.bgmSource.buffer = audioBuffer;
             this.bgmSource.loop = true; // 强制循环
             this.bgmSource.connect(this.bgmGain);
+            
+            // 立即开始播放时间轴
+            // 如果 ctx 是 suspended，它会在后台“播放”，一旦 resume 就会立刻听到声音
             this.bgmSource.start(0);
             
-            console.log("BGM started successfully");
+            console.log("BGM loaded and scheduled");
             
         } catch (e) {
             console.warn("BGM load failed", e);
@@ -100,6 +110,7 @@ class AudioManager {
     playScore() {
         if (!this.ctx || this.isMuted) return;
 
+        // 每次播放音效都尝试唤醒一下，增加保险
         if (this.ctx.state === 'suspended') {
             this.ctx.resume().catch(() => {});
         }
@@ -123,15 +134,14 @@ class AudioManager {
             osc.frequency.setValueAtTime(440, t); 
             osc.frequency.linearRampToValueAtTime(880, t + 0.15);
 
-            // 保持 0.4 音量
-            gain.gain.setValueAtTime(0.4, t); 
+            gain.gain.setValueAtTime(0.32, t); 
             gain.gain.linearRampToValueAtTime(0, t + 0.15);
 
             osc.start(t);
             osc.stop(t + 0.15); 
 
         } catch (e) {
-            console.error("Audio play error", e);
+            // console.error("Audio play error", e); // 忽略频繁的报错
         }
     }
 }

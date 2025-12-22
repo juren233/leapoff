@@ -142,8 +142,8 @@ export const LeapOrbitGame: React.FC = () => {
   }, [refs, setUploadStatus]);
 
   const startGame = () => {
-      audioManager.init(); // 显式初始化
-      // 移除这里的 playBGM，因为已经全局启动了
+      // 即使 BGM 已经在播放，这里再调一次 resume 确保万无一失
+      audioManager.resume();
       initGame();
       gameStateRef.current = 'PLAYING';
       setUiGameState('PLAYING');
@@ -291,24 +291,31 @@ export const LeapOrbitGame: React.FC = () => {
 
   // --- Global Audio Starter & Unlocker ---
   useEffect(() => {
-      // 1. 尝试在加载时立即播放 (如果浏览器允许)
-      audioManager.init();
+      // 1. 加载组件时，无论如何先调用 playBGM。
+      // 它会开始下载和解码。如果浏览器允许自动播放，声音会直接出来。
+      // 如果不允许，声音会在后台播放进度（无声），直到下面的交互事件触发 resume。
       audioManager.playBGM();
 
-      // 2. 添加全局点击/触摸事件，确保如果自动播放被阻止，第一次点击时能立即播放
+      // 2. 激进的“解锁”策略：监听所有微小的交互。
+      // 只要用户动了鼠标、点了屏幕、或者按了键盘，就立即恢复 AudioContext。
       const unlockAudio = () => {
-          audioManager.init();
-          audioManager.playBGM(); // 如果已经在播放内部会忽略
+          audioManager.resume();
       };
       
-      window.addEventListener('click', unlockAudio);
-      window.addEventListener('touchstart', unlockAudio);
-      window.addEventListener('keydown', unlockAudio);
+      // 使用 capture: true 确保尽早捕获
+      const opts = { capture: true, passive: true };
+
+      window.addEventListener('click', unlockAudio, opts);
+      window.addEventListener('touchstart', unlockAudio, opts);
+      window.addEventListener('keydown', unlockAudio, opts);
+      // 新增：鼠标移动也触发！这会让桌面端体验接近“自动播放”
+      window.addEventListener('mousemove', unlockAudio, opts);
 
       return () => {
-          window.removeEventListener('click', unlockAudio);
-          window.removeEventListener('touchstart', unlockAudio);
-          window.removeEventListener('keydown', unlockAudio);
+          window.removeEventListener('click', unlockAudio, opts);
+          window.removeEventListener('touchstart', unlockAudio, opts);
+          window.removeEventListener('keydown', unlockAudio, opts);
+          window.removeEventListener('mousemove', unlockAudio, opts);
       };
   }, []);
 
