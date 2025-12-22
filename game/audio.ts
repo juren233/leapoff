@@ -53,9 +53,13 @@ class AudioManager {
         this.bgmGain.connect(this.ctx.destination);
 
         try {
-            // 修改路径：加载 assets 目录下的 bgm.mp3
-            const response = await fetch('assets/bgm.mp3');
-            if (!response.ok) throw new Error("BGM File not found");
+            // 修改路径：使用 raw.githubusercontent.com 域名以解决跨域(CORS)问题
+            // 原链接中的 /raw/refs/heads/main/ 对应 raw 域名下的 /main/
+            const response = await fetch('https://raw.githubusercontent.com/juren233/leapoffthings/main/assets/bgm.mp3');
+            
+            if (!response.ok) {
+                throw new Error(`BGM Fetch failed with status: ${response.status}`);
+            }
             
             const arrayBuffer = await response.arrayBuffer();
             const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
@@ -69,7 +73,7 @@ class AudioManager {
             this.bgmSource.connect(this.bgmGain);
             this.bgmSource.start(0);
             
-            console.log("BGM started");
+            console.log("BGM started successfully");
             
         } catch (e) {
             console.warn("BGM load failed", e);
