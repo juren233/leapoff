@@ -1,5 +1,5 @@
 
-export const GAME_VERSION = "v8.8.2-music";
+export const GAME_VERSION = "v8.8.3-bugfix";
 
 export const PLAYER_CONFIG = {
   baseRadius: 100,

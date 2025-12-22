@@ -218,11 +218,20 @@ export const updateGame = (
         const dy = player.y - Math.sin(e.angle) * e.dist;
         if ((dx * dx + dy * dy) < 100000) {
             // Apply dt to magnet pulling force
-            e.dist += (player.radius - e.dist) * (e.isSafety ? 0.05 : 0.2) * dt;
+            // 修复：大幅提高吸附速度，防止光点在玩家身后追赶（Trailing Issue）
+            // dist: 0.2 -> 0.35, angle: 0.15 -> 0.45
+            const isSafe = e.isSafety;
+            const distFactor = isSafe ? 0.1 : 0.35; 
+            const angleFactor = isSafe ? 0.1 : 0.45;
+
+            e.dist += (player.radius - e.dist) * distFactor * dt;
+            
             let diffAngle = player.angle - e.angle;
             while (diffAngle > Math.PI) diffAngle -= Math.PI * 2;
             while (diffAngle < -Math.PI) diffAngle += Math.PI * 2;
-            e.angle += diffAngle * (e.isSafety ? 0.05 : 0.15) * dt;
+            
+            e.angle += diffAngle * angleFactor * dt;
+            
             if ((dx * dx + dy * dy) < 3000) magnetSucked = true;
         }
       }
