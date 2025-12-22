@@ -142,7 +142,7 @@ export const LeapOrbitGame: React.FC = () => {
   }, [refs, setUploadStatus]);
 
   const startGame = () => {
-      audioManager.init(); // 初始化音频系统
+      audioManager.init(); // 显式初始化
       initGame();
       gameStateRef.current = 'PLAYING';
       setUiGameState('PLAYING');
@@ -287,6 +287,24 @@ export const LeapOrbitGame: React.FC = () => {
 
       return () => { window.removeEventListener('resize', handleResize); cancelAnimationFrame(frameId.current); };
   }, [loop, refs]);
+
+  // --- Global Interaction Audio Unlocker ---
+  // 某些浏览器需要用户点击页面任何位置才能真正解锁 AudioContext
+  useEffect(() => {
+      const unlockAudio = () => {
+          audioManager.init();
+          // 如果已经解锁，可以移除监听，但保留着也无害（init内部有判断）
+      };
+      window.addEventListener('click', unlockAudio);
+      window.addEventListener('touchstart', unlockAudio);
+      window.addEventListener('keydown', unlockAudio);
+
+      return () => {
+          window.removeEventListener('click', unlockAudio);
+          window.removeEventListener('touchstart', unlockAudio);
+          window.removeEventListener('keydown', unlockAudio);
+      };
+  }, []);
 
   // --- Event Listeners ---
   useEffect(() => {
