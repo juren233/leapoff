@@ -143,6 +143,7 @@ export const LeapOrbitGame: React.FC = () => {
 
   const startGame = () => {
       audioManager.init(); // 显式初始化
+      // 移除这里的 playBGM，因为已经全局启动了
       initGame();
       gameStateRef.current = 'PLAYING';
       setUiGameState('PLAYING');
@@ -208,6 +209,9 @@ export const LeapOrbitGame: React.FC = () => {
 
   const handleGameOver = useCallback(() => {
       gameStateRef.current = 'GAMEOVER';
+      
+      // 移除了 audioManager.stopBGM()，让BGM一直播放
+
       const finalTime = (gameEndTimeRef.current || Date.now()) - gameStartTimeRef.current;
       
       entitiesRef.current.forEach(e => {
@@ -253,11 +257,9 @@ export const LeapOrbitGame: React.FC = () => {
       lastFrameTime.current = timestamp;
 
       // Convert to "Delta Time" factor relative to 60 FPS
-      // If running at 60 FPS, dt = 1.0
-      // If running at 120 FPS, dt = 0.5
       let dt = delta / (1000 / 60);
 
-      // Cap dt to prevent massive jumps if tab was inactive (e.g. max 4 frames skip)
+      // Cap dt to prevent massive jumps
       if (dt > 4) dt = 4;
 
       // Update Game Logic with dt
@@ -281,20 +283,24 @@ export const LeapOrbitGame: React.FC = () => {
       };
       window.addEventListener('resize', handleResize); handleResize();
       
-      // Reset loop timing
       lastFrameTime.current = 0;
       frameId.current = requestAnimationFrame(loop);
 
       return () => { window.removeEventListener('resize', handleResize); cancelAnimationFrame(frameId.current); };
   }, [loop, refs]);
 
-  // --- Global Interaction Audio Unlocker ---
-  // 某些浏览器需要用户点击页面任何位置才能真正解锁 AudioContext
+  // --- Global Audio Starter & Unlocker ---
   useEffect(() => {
+      // 1. 尝试在加载时立即播放 (如果浏览器允许)
+      audioManager.init();
+      audioManager.playBGM();
+
+      // 2. 添加全局点击/触摸事件，确保如果自动播放被阻止，第一次点击时能立即播放
       const unlockAudio = () => {
           audioManager.init();
-          // 如果已经解锁，可以移除监听，但保留着也无害（init内部有判断）
+          audioManager.playBGM(); // 如果已经在播放内部会忽略
       };
+      
       window.addEventListener('click', unlockAudio);
       window.addEventListener('touchstart', unlockAudio);
       window.addEventListener('keydown', unlockAudio);
