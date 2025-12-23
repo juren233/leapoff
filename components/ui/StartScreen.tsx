@@ -278,7 +278,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       <div className="relative z-20 flex flex-col items-center justify-center w-full">
         
         {/* Title Block */}
-        <div className="relative text-center mb-10 md:mb-16 group cursor-default">
+        {/* Fix: Added z-20 to ensure title sits above the swaying rope */}
+        <div className="relative z-20 text-center mb-10 md:mb-16 group cursor-default">
            {/* Glitch Effect Duplicate */}
            {/* Mobile: text-5xl, Desktop: text-9xl */}
            <h1 className={`absolute inset-0 text-5xl md:text-9xl font-black italic tracking-tighter blur-sm translate-x-1 translate-y-1 animate-pulse select-none ${isChristmas ? 'text-red-500/30' : 'text-cyan-500/20'}`}>
@@ -304,8 +305,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             CRITICAL FIX: 
             origin-[50%_-8rem] sets the rotation pivot 8rem (approx 128px) ABOVE the center of the element.
             Since the string is h-32 (8rem) and positioned -top-32, this sets the pivot exactly at the top of the string.
+            
+            Z-Index Fix: Set z-10 so it stays behind the z-20 title text.
         */}
-        <div className={`relative ${isChristmas ? 'animate-[bauble-sway_4s_ease-in-out_infinite] origin-[50%_-8rem]' : ''}`}>
+        <div className={`relative z-10 ${isChristmas ? 'animate-[bauble-sway_4s_ease-in-out_infinite] origin-[50%_-8rem]' : ''}`}>
         
             {isChristmas && (
                 <>

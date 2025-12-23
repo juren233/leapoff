@@ -1,6 +1,6 @@
 import { GameConfig } from "./types";
 
-export const GAME_VERSION = "v9.0.0-MerryXmas";
+export const GAME_VERSION = "v9.0.1-MerryXmas";
 
 // Shared Cache Key for Themes & Config
 export const THEME_CACHE_KEY = 'leap_orbit_themes_list_v1';

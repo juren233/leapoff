@@ -14,18 +14,18 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ type, onFinished }
   const items = Array.from({ length: 8 }); 
 
   return (
-    <div className="absolute inset-0 z-[100] bg-[#050505] overflow-hidden flex flex-col items-center justify-center select-none cursor-wait">
+    <div className="absolute inset-0 z-[100] bg-[#0f0f0f] overflow-hidden flex flex-col items-center justify-center select-none cursor-wait">
       <style>{`
         @keyframes scroll-left {
           0% { transform: translateX(0); }
           100% { transform: translateX(-50%); }
         }
         .text-stroke {
-          -webkit-text-stroke: 1.5px #222; 
+          -webkit-text-stroke: 1.5px #454545; 
           color: transparent;
         }
         .bg-text-solid {
-            color: #1a1a1a;
+            color: #2e2e2e;
         }
         .scrolling-row {
            display: flex;
@@ -83,13 +83,19 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ type, onFinished }
       </div>
 
       {/* Vignette Overlay - Lighter Side Gradients */}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-black/60 z-10 pointer-events-none"></div>
+      <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-transparent to-black/40 z-10 pointer-events-none"></div>
       {/* Light center vignette */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_30%,rgba(0,0,0,0.3)_100%)] z-10 pointer-events-none"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_30%,rgba(0,0,0,0.2)_100%)] z-10 pointer-events-none"></div>
 
       {/* Center Content - Square Frosted Glass Style */}
       <div className="relative z-20 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500">
-         <div className="bg-black/40 backdrop-blur-2xl border border-white/5 rounded-3xl p-8 md:p-12 flex flex-col items-center justify-center gap-6 shadow-[0_0_60px_rgba(0,0,0,0.6)] min-w-[200px] md:min-w-[280px]">
+         {/* 
+            调整：
+            1. bg-black/20 (更通透)
+            2. backdrop-blur-xl (稍微降低模糊度，保留更多背景细节，看起来更有玻璃质感)
+            3. border-white/10 (稍微增强边框)
+         */}
+         <div className="bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl p-8 md:p-12 flex flex-col items-center justify-center gap-6 shadow-[0_0_60px_rgba(0,0,0,0.4)] min-w-[200px] md:min-w-[280px]">
             
             {/* Icon */}
             <div className="relative">
