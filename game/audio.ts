@@ -14,11 +14,13 @@ class AudioManager {
     bgmGain: GainNode | null = null;
     bgmSource: AudioBufferSourceNode | null = null;
     
-    // BGM 数据缓存（避免重复下载）
-    bgmBuffer: AudioBuffer | null = null;
+    // BGM 数据缓存 (URL -> AudioBuffer)
+    bgmBuffers: Map<string, AudioBuffer> = new Map();
+    // 当前正在播放（或计划播放）的URL
+    currentBgmUrl: string | null = null;
     
-    // 加载状态锁
-    isLoading: boolean = false;
+    // 正在加载的 URL 集合
+    loadingUrls: Set<string> = new Set();
     
     // 自动重试定时器
     autoResumeTimer: any = null;
@@ -28,10 +30,8 @@ class AudioManager {
         this.bindGlobalUnlock();
     }
 
-    // 初始化音频上下文
     init() {
         if (!this.ctx) {
-            // 兼容性处理
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             if (AudioContextClass) {
                 this.ctx = new AudioContextClass();
@@ -39,145 +39,181 @@ class AudioManager {
         }
     }
 
-    // 公开的 resume 方法，供外部组件(LeapOrbitGame)调用
     async resume() {
         if (!this.ctx) this.init();
         if (this.ctx && this.ctx.state !== 'running') {
-            try {
-                await this.ctx.resume();
-            } catch (e) {
-                // 忽略恢复失败（可能是因为没有用户交互）
-            }
+            try { await this.ctx.resume(); } catch (e) {}
         }
     }
 
-    // 设置 BGM 静音状态
+    // 设置 BGM 静音状态 (带平滑过渡)
     setBgmMute(muted: boolean) {
+        // [关键修复] 状态防抖：
+        // 如果请求的状态和当前一致，直接返回。
+        // 这防止了 React 组件重绘时重复调用此方法，从而打断正在进行的 fadeOut/fadeIn 动画。
+        if (this.bgmMuted === muted) return;
+
         this.bgmMuted = muted;
+        
         if (this.bgmGain && this.ctx) {
-            // 平滑过渡音量
             const t = this.ctx.currentTime;
-            // 恢复音量设为 1.0 (原需求)，静音设为 0
-            this.bgmGain.gain.setTargetAtTime(muted ? 0 : 1.0, t, 0.1);
-        } else if (!muted && !this.bgmSource) {
-            // 如果取消静音且当前没有播放，尝试播放
-            this.playBGM();
+            // 取消之前的计划，防止冲突
+            this.bgmGain.gain.cancelScheduledValues(t);
+            // 锁定当前音量作为起点，防止突变
+            this.bgmGain.gain.setValueAtTime(this.bgmGain.gain.value, t);
+
+            if (muted) {
+                // 设置中关闭音乐：使用 0.5秒 平滑渐出，不再瞬间静音
+                this.bgmGain.gain.linearRampToValueAtTime(0, t + 0.5);
+            } else {
+                // 设置中开启音乐：使用 0.5秒 平滑渐入
+                this.bgmGain.gain.linearRampToValueAtTime(1.0, t + 0.5);
+            }
+        } else if (!muted && !this.bgmSource && this.currentBgmUrl) {
+            // 如果取消静音且当前没在播放，尝试启动
+            this.playBGM(this.currentBgmUrl);
         }
     }
 
-    // 设置 SFX 静音状态
     setSfxMute(muted: boolean) {
         this.sfxMuted = muted;
     }
 
-    // 绑定全局解锁事件（最激进的解锁策略）
+    // [New] 渐出效果 (Fade Out)
+    // 用于场景切换（如返回首页），将音量平滑降为 0，但不改变 muted 状态
+    fadeOut(duration: number = 1.0) {
+        if (!this.ctx || !this.bgmGain || this.bgmMuted) return;
+        try {
+            const t = this.ctx.currentTime;
+            this.bgmGain.gain.cancelScheduledValues(t);
+            this.bgmGain.gain.setValueAtTime(this.bgmGain.gain.value, t);
+            // 使用 LinearRamp 确保在 duration 结束时音量严格为 0
+            this.bgmGain.gain.linearRampToValueAtTime(0, t + duration);
+        } catch(e) {}
+    }
+
+    // [New] 渐入效果 (Fade In)
+    // 用于场景加载完成，恢复音量
+    fadeIn(duration: number = 1.0) {
+        if (!this.ctx || !this.bgmGain || this.bgmMuted) return;
+        try {
+            const t = this.ctx.currentTime;
+            this.bgmGain.gain.cancelScheduledValues(t);
+            this.bgmGain.gain.setValueAtTime(this.bgmGain.gain.value, t);
+            this.bgmGain.gain.linearRampToValueAtTime(1.0, t + duration);
+        } catch(e) {}
+    }
+
     bindGlobalUnlock() {
         if (typeof window === 'undefined') return;
-
         const unlock = () => {
-            // 调用统一的 resume 方法
             this.resume().then(() => {
-                // 恢复成功后，如果还没播放BGM且没有静音，再次尝试播放
-                // 如果 bgmSource 不存在，但有缓存，说明可能之前被 stop 或者还没开始
-                if (!this.bgmSource && this.bgmBuffer && !this.bgmMuted) {
-                    this.playBGM();
+                if (!this.bgmSource && this.currentBgmUrl && this.bgmBuffers.has(this.currentBgmUrl) && !this.bgmMuted) {
+                    this.playBGM(this.currentBgmUrl);
                 }
             });
         };
-
-        // 监听所有可能的用户交互，只要碰到浏览器就解锁
         const events = ['click', 'touchstart', 'touchend', 'keydown', 'mousemove', 'scroll', 'resize'];
         events.forEach(event => {
             window.addEventListener(event, unlock, { capture: true, passive: true });
         });
     }
 
-    // 启动自动重试机制（针对 BGM）
     startAutoResumeCheck() {
         if (this.autoResumeTimer) clearInterval(this.autoResumeTimer);
-        
         this.autoResumeTimer = setInterval(() => {
             if (this.ctx) {
                 if (this.ctx.state === 'suspended') {
                     this.ctx.resume().catch(() => {});
                 } else if (this.ctx.state === 'running') {
-                    // 如果已经是 running 状态，清理定时器
                     clearInterval(this.autoResumeTimer);
                     this.autoResumeTimer = null;
                 }
             }
-        }, 500); // 每半秒尝试唤醒一次
+        }, 500);
     }
 
-    // 播放背景音乐
-    async playBGM() {
+    async playBGM(url?: string) {
         this.init();
         if (!this.ctx) return;
         
-        // 启动看门狗定时器
+        const targetUrl = url || this.currentBgmUrl;
+        if (!targetUrl) return;
+
         this.startAutoResumeCheck();
 
-        // 1. 如果已经在播放 (bgmSource 存在) 或者正在加载中，则不重新开始，直接返回
-        if (this.bgmSource || this.isLoading) {
-            // 确保 Context 是 running 的即可
-            if (this.ctx.state !== 'running') {
-                this.ctx.resume().catch(() => {});
+        // 1. 如果是同一首歌
+        if (this.currentBgmUrl === targetUrl && this.bgmSource) {
+            if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
+            
+            // 如果虽然是同一首歌，但音量被 fadeOut 了（例如 fadeOut 后取消跳转），需要恢复
+            if (!this.bgmMuted && this.bgmGain && this.bgmGain.gain.value < 0.1) {
+                 const t = this.ctx.currentTime;
+                 this.bgmGain.gain.cancelScheduledValues(t);
+                 this.bgmGain.gain.linearRampToValueAtTime(1.0, t + 0.5);
             }
             return;
         }
 
-        // 2. 如果已经有缓存的数据，直接播放
-        if (this.bgmBuffer) {
-            this.startSourceNode(this.bgmBuffer);
-            return;
-        }
-
-        // 3. 开始下载
-        this.isLoading = true;
-        try {
-            console.log("Starting BGM download...");
-            // 使用正确的 CDN 链接
-            const response = await fetch('https://raw.githubusercontent.com/juren233/leapoffthings/main/assets/bgm.mp3');
-            
-            if (!response.ok) {
-                throw new Error(`Fetch error: ${response.status}`);
-            }
-            
-            const arrayBuffer = await response.arrayBuffer();
-            // 解码音频数据
-            this.bgmBuffer = await this.ctx.decodeAudioData(arrayBuffer);
-            
-            console.log("BGM decoded successfully");
-            this.startSourceNode(this.bgmBuffer);
-
-        } catch (e) {
-            console.warn("BGM load failed, retrying in 2s...", e);
-            // 失败后 2 秒自动重试
-            setTimeout(() => {
-                this.playBGM();
-            }, 2000);
-        } finally {
-            this.isLoading = false;
-        }
-    }
-
-    // 创建并启动音频源节点
-    startSourceNode(buffer: AudioBuffer) {
-        if (!this.ctx) return;
-
-        // 如果之前有在该播放的，先停掉，防止重音
+        // 2. 切歌：停止当前
         if (this.bgmSource) {
             try { this.bgmSource.stop(); } catch(e){}
             this.bgmSource.disconnect();
+            this.bgmSource = null;
         }
         if (this.bgmGain) {
             this.bgmGain.disconnect();
         }
 
-        // 创建新的节点链
+        this.currentBgmUrl = targetUrl;
+
+        // 3. 检查缓存
+        if (this.bgmBuffers.has(targetUrl)) {
+            this.startSourceNode(this.bgmBuffers.get(targetUrl)!);
+            return;
+        }
+
+        // 4. 下载
+        if (this.loadingUrls.has(targetUrl)) return;
+        this.loadingUrls.add(targetUrl);
+        
+        try {
+            console.log(`Starting BGM download: ${targetUrl}`);
+            const response = await fetch(targetUrl);
+            if (!response.ok) throw new Error(`Fetch error: ${response.status}`);
+            
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = await this.ctx.decodeAudioData(arrayBuffer);
+            this.bgmBuffers.set(targetUrl, buffer);
+            
+            console.log("BGM decoded successfully");
+            if (this.currentBgmUrl === targetUrl) {
+                this.startSourceNode(buffer);
+            }
+        } catch (e) {
+            console.warn("BGM load failed, retrying in 2s...", e);
+            setTimeout(() => {
+                if (this.currentBgmUrl === targetUrl) {
+                     this.loadingUrls.delete(targetUrl);
+                     this.playBGM(targetUrl);
+                }
+            }, 2000);
+        } finally {
+            this.loadingUrls.delete(targetUrl);
+        }
+    }
+
+    startSourceNode(buffer: AudioBuffer) {
+        if (!this.ctx) return;
+
+        if (this.bgmSource) {
+            try { this.bgmSource.stop(); } catch(e){}
+            this.bgmSource.disconnect();
+        }
+
         this.bgmGain = this.ctx.createGain();
-        // 初始化音量：如果已静音则为0，否则为 1.0
-        this.bgmGain.gain.value = this.bgmMuted ? 0 : 1.0; 
+        // 初始化音量：如果是切歌，先设为0，然后快速渐入，避免爆音
+        this.bgmGain.gain.value = 0; 
         this.bgmGain.connect(this.ctx.destination);
 
         this.bgmSource = this.ctx.createBufferSource();
@@ -185,38 +221,33 @@ class AudioManager {
         this.bgmSource.loop = true;
         this.bgmSource.connect(this.bgmGain);
 
-        // 立即启动！
         this.bgmSource.start(0);
-        console.log("BGM Source started (queued if suspended)");
+
+        // 如果未静音，执行切歌渐入
+        const t = this.ctx.currentTime;
+        if (!this.bgmMuted) {
+             this.bgmGain.gain.linearRampToValueAtTime(1.0, t + 0.3);
+        }
     }
 
     stopBGM() {
-        // 当前需求不主动停止BGM，留空或仅做标记
+        // Reserved
     }
 
     playScore() {
-        // 检查 SFX 是否静音
         if (!this.ctx || this.sfxMuted) return;
-        
-        // SFX 播放时也顺便尝试唤醒
         if (this.ctx.state !== 'running') this.ctx.resume().catch(()=>{});
-
         try {
             const t = this.ctx.currentTime;
             const osc = this.ctx.createOscillator();
             const gain = this.ctx.createGain();
-
             osc.connect(gain);
             gain.connect(this.ctx.destination);
-
             osc.type = 'triangle';
             osc.frequency.setValueAtTime(440, t); 
             osc.frequency.linearRampToValueAtTime(880, t + 0.15);
-
-            // 音量设为 0.3
             gain.gain.setValueAtTime(0.3, t); 
             gain.gain.linearRampToValueAtTime(0, t + 0.15);
-
             osc.start(t);
             osc.stop(t + 0.15); 
         } catch (e) {}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Skull, Trophy, Award, RefreshCw, Target, Clock, Hash, Coins, Loader2, CheckCircle, AlertTriangle, UploadCloud, LogIn } from 'lucide-react';
+import { Skull, Trophy, Award, RefreshCw, Target, Clock, Hash, Coins, Loader2, CheckCircle, AlertTriangle, UploadCloud, LogIn, Home } from 'lucide-react';
 import { GameStats, UploadStatus } from '../../types';
 
 interface GameOverModalProps {
@@ -12,6 +12,7 @@ interface GameOverModalProps {
   onRestart: () => void;
   onSync: () => void;
   onAuthOpen: () => void;
+  onHome: () => void; // 新增返回首页的回调
 }
 
 export const GameOverModal: React.FC<GameOverModalProps> = ({
@@ -23,7 +24,8 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   onLeaderboardOpen,
   onRestart,
   onSync,
-  onAuthOpen
+  onAuthOpen,
+  onHome
 }) => {
   return (
     // Mobile: Increased top padding (pt) for safe areas. Desktop: md:p-4.
@@ -62,16 +64,21 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
               <span className="font-mono font-bold text-yellow-400 text-base md:text-lg">{highScore.toLocaleString()}</span>
             </div>
 
-            {/* Desktop Buttons Placeholders (Visible only on md+) */}
+            {/* Desktop Buttons (Visible only on md+) */}
             <div className="hidden md:flex flex-col w-full gap-3 mt-auto">
+              {/* Row 1: Leaderboard & Home */}
               <div className="flex gap-3 w-full">
                 <button onClick={onLeaderboardOpen} className="flex-1 py-3.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-sm border border-white/5 hover:border-white/20">
                   <Award size={18} className="text-slate-300" /> 排行榜
                 </button>
-                <button onClick={onRestart} className="flex-[2] py-3.5 bg-white hover:bg-slate-200 text-black font-bold rounded-xl transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.1)]">
-                  <RefreshCw size={18} /> 再来一次
+                <button onClick={onHome} className="flex-1 py-3.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-sm border border-white/5 hover:border-white/20">
+                  <Home size={18} className="text-slate-300" /> 返回首页
                 </button>
               </div>
+              {/* Row 2: Retry (Full Width) */}
+              <button onClick={onRestart} className="w-full py-3.5 bg-white hover:bg-slate-200 text-black font-bold rounded-xl transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+                 <RefreshCw size={18} /> 再来一次
+              </button>
             </div>
           </div>
 
@@ -144,13 +151,20 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         </div>
 
         {/* Mobile Buttons (Visible only on small screens) */}
-        <div className="flex md:hidden gap-2 w-full mt-6">
-          <button onClick={onLeaderboardOpen} className="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-full transition-all flex items-center justify-center gap-2 text-xs border border-white/10">
-            <Award size={16} /> 排行榜
-          </button>
-          <button onClick={onRestart} className="flex-[2] py-2.5 bg-white hover:bg-slate-200 text-black font-bold rounded-full transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 shadow-lg shadow-white/10 text-xs">
-            <RefreshCw size={16} /> 再来一次
-          </button>
+        <div className="flex flex-col md:hidden w-full mt-6 gap-2">
+           {/* Row 1 */}
+           <div className="flex gap-2 w-full">
+              <button onClick={onLeaderboardOpen} className="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-xs border border-white/10">
+                <Award size={16} /> 排行榜
+              </button>
+              <button onClick={onHome} className="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-xs border border-white/10">
+                <Home size={16} /> 返回首页
+              </button>
+           </div>
+           {/* Row 2 */}
+           <button onClick={onRestart} className="w-full py-2.5 bg-white hover:bg-slate-200 text-black font-bold rounded-xl transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 shadow-lg shadow-white/10 text-xs">
+              <RefreshCw size={16} /> 再来一次
+           </button>
         </div>
 
       </div>

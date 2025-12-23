@@ -4,7 +4,7 @@
  */
 
 import { GameRefs } from '../types';
-import { PLAYER_CONFIG, COLORS, BONUS_SCORE_THRESHOLD, CENTER_SAFE_LIMIT, CENTER_DEATH_LIMIT } from '../constants';
+import { COLORS } from '../constants';
 import { calculateCurrentTotalScore, createExplosion, createShockwave, spawnFloatingText, triggerHaptic } from './utils';
 import { spawnEntity, spawnInnerAmbience, spawnSafetyRing } from './spawner';
 import { audioManager } from './audio';
@@ -33,6 +33,32 @@ export const updateGame = (
     ui: UiSetters,
     dt: number // Delta Time factor (1.0 = 60fps)
 ) => {
+    const cfg = refs.configRef.current;
+    
+    // --- AMBIENT UPDATES (Christmas Theme) ---
+    // Only update visuals if theme is christmas and we have dimensions
+    if (refs.settingsRef.current.theme === 'christmas') {
+        const { width, height } = refs.dimensions.current;
+        const time = Date.now() / 1000;
+        
+        // 1. Snow
+        refs.snowParticlesRef.current.forEach(snow => {
+            // Apply zoom factor inversely so snow looks like background
+            // Or just keep it simple screen space
+            snow.y += snow.speed * dt;
+            // Sway motion
+            snow.x += Math.sin(time + snow.swayOffset) * 0.5 * dt;
+
+            // Loop
+            if (snow.y > height + 10) {
+                snow.y = -10;
+                snow.x = Math.random() * width;
+            }
+            if (snow.x > width + 10) snow.x = -10;
+            if (snow.x < -10) snow.x = width + 10;
+        });
+    }
+
     if (refs.gameStateRef.current === 'START') return;
 
     // --- DYING STATE ---
@@ -87,7 +113,6 @@ export const updateGame = (
     if (refs.isBonusTimeRef.current) {
         // dt = delta / 16.666 ms
         // To subtract seconds: refs.bonusTimerRef.current (seconds) -= dt / 60
-        // (because dt=1 means 1/60th of a second passed)
         refs.bonusTimerRef.current -= dt / 60;
         ui.setBonusTimeLeft(refs.bonusTimerRef.current);
         
@@ -97,20 +122,24 @@ export const updateGame = (
     } else {
         ui.setScoreDisplay(currentTotalScore);
         
-        const nextThreshold = refs.lastBonusThresholdRef.current + BONUS_SCORE_THRESHOLD;
+        const nextThreshold = refs.lastBonusThresholdRef.current + cfg.gameParams.bonusScoreThreshold;
         if (currentTotalScore >= nextThreshold) {
-            refs.lastBonusThresholdRef.current += BONUS_SCORE_THRESHOLD;
+            refs.lastBonusThresholdRef.current += cfg.gameParams.bonusScoreThreshold;
             actions.triggerBonusMode();
         }
     }
 
-    // Buffs
+    // --- Buff Logic (Time-based now) ---
+    const deltaSeconds = dt / 60;
+
     if (player.shieldTime > 0) {
-        if (Math.ceil(player.shieldTime) === 1 && Math.ceil(player.shieldTime - dt) <= 0) triggerHaptic([40, 30, 15]); 
-        player.shieldTime -= 1 * dt;
+        // Warning haptics when running low (at 1.0s and 0.0s)
+        if (player.shieldTime > 1.0 && (player.shieldTime - deltaSeconds) <= 1.0) triggerHaptic([20, 20]);
+        player.shieldTime -= deltaSeconds;
     }
-    if (player.magnetTime > 0) player.magnetTime -= 1 * dt;
-    if (player.dashTime > 0) player.dashTime -= 1 * dt;
+    if (player.magnetTime > 0) player.magnetTime -= deltaSeconds;
+    if (player.dashTime > 0) player.dashTime -= deltaSeconds;
+    
     const hasShield = player.shieldTime > 0;
     const hasMagnet = player.magnetTime > 0;
     const hasDash = player.dashTime > 0;
@@ -119,16 +148,16 @@ export const updateGame = (
     // Calculate dynamic rotation speed:
     // Base Speed * Sqrt(BaseRadius / CurrentRadius)
     // This creates a smooth falloff where higher altitude = slower rotation
-    const altitudeDamping = Math.sqrt(player.baseRadius / Math.max(player.baseRadius, player.radius));
+    const altitudeDamping = Math.sqrt(cfg.player.baseRadius / Math.max(cfg.player.baseRadius, player.radius));
     
     if (hasDash) {
         // Dash maintains high speed but still feels the altitude slightly
-        const dashSpeed = PLAYER_CONFIG.dashRotSpeed * altitudeDamping;
+        const dashSpeed = cfg.player.dashRotSpeed * altitudeDamping;
         player.angle += dashSpeed * dt;
         player.rVelocity *= Math.pow(0.5, dt); 
     } else {
         if (refs.isPressing.current) {
-             const currentRotSpeed = PLAYER_CONFIG.rotSpeed * altitudeDamping;
+             const currentRotSpeed = cfg.player.rotSpeed * altitudeDamping;
              player.angle += currentRotSpeed * dt; 
         }
         player.rVelocity -= player.gravity * dt; 
@@ -160,11 +189,14 @@ export const updateGame = (
             actions.endBonusMode();
         }
 
-        player.centerTime += 1 * dt;
-        if (player.centerTime > CENTER_SAFE_LIMIT) {
+        // Use seconds instead of frame factor
+        player.centerTime += deltaSeconds;
+        
+        if (player.centerTime > cfg.gameParams.centerSafeLimit) {
             ui.setCenterWarning(true);
-            refs.shake.current = (player.centerTime - CENTER_SAFE_LIMIT) / 20; 
-            if (player.centerTime > CENTER_DEATH_LIMIT) actions.triggerDyingSequence();
+            // Shake increases over 3 seconds to max ~9
+            refs.shake.current = (player.centerTime - cfg.gameParams.centerSafeLimit) * 3; 
+            if (player.centerTime > cfg.gameParams.centerDeathLimit) actions.triggerDyingSequence();
         }
     } else {
         if (player.centerTime > 0) { player.centerTime = 0; ui.setCenterWarning(false); }
@@ -177,7 +209,7 @@ export const updateGame = (
     player.trailAccumulator += dt;
     if (player.trailAccumulator >= 1.0) {
         player.trail.push({ x: player.x, y: player.y });
-        if (player.trail.length > PLAYER_CONFIG.trailLength) player.trail.shift();
+        if (player.trail.length > cfg.player.trailLength) player.trail.shift();
         player.trailAccumulator -= 1.0;
         // Cap accumulator to prevent runaway loops on huge lag spikes
         if (player.trailAccumulator > 1.0) player.trailAccumulator = 0;
@@ -197,8 +229,9 @@ export const updateGame = (
     refs.cameraRef.current.y += (player.y * 0.5 - refs.cameraRef.current.y) * 0.08 * dt;
     refs.cameraRef.current.zoom += (targetZoom - refs.cameraRef.current.zoom) * 0.05 * dt;
 
-    spawnEntity(refs);
-    spawnInnerAmbience(refs);
+    // Fix: Pass dt to spawners to ensure consistent spawn rates
+    spawnEntity(refs, dt);
+    spawnInnerAmbience(refs, dt);
 
     const now = Date.now();
     for (let i = refs.entitiesRef.current.length - 1; i >= 0; i--) {
@@ -211,6 +244,13 @@ export const updateGame = (
       e.angle += e.moveSpeed * dt;
       if (e.type === 'enemy') e.rotation += 0.06 * dt;
 
+      // Magnet Logic
+      const preEx = Math.cos(e.angle) * e.dist;
+      const preEy = Math.sin(e.angle) * e.dist;
+      const preDistSq = (player.x - preEx)**2 + (player.y - preEy)**2;
+      const hitRadiusSq = (player.size + e.size * e.scale)**2;
+      const wasHitNatural = preDistSq < hitRadiusSq;
+
       let magnetSucked = false;
       // Magnet affects Score AND Coins
       if ((e.type === 'score' || e.type === 'coin') && hasMagnet) {
@@ -218,8 +258,6 @@ export const updateGame = (
         const dy = player.y - Math.sin(e.angle) * e.dist;
         if ((dx * dx + dy * dy) < 100000) {
             // Apply dt to magnet pulling force
-            // 修复：大幅提高吸附速度，防止光点在玩家身后追赶（Trailing Issue）
-            // dist: 0.2 -> 0.35, angle: 0.15 -> 0.45
             const isSafe = e.isSafety;
             const distFactor = isSafe ? 0.1 : 0.35; 
             const angleFactor = isSafe ? 0.1 : 0.45;
@@ -239,7 +277,7 @@ export const updateGame = (
       const ex = Math.cos(e.angle) * e.dist;
       const ey = Math.sin(e.angle) * e.dist;
       const distSq = (player.x - ex)**2 + (player.y - ey)**2;
-      const isDirectHit = distSq < (player.size + e.size * e.scale)**2;
+      const isDirectHit = distSq < hitRadiusSq;
 
       if (isDirectHit || magnetSucked) {
         if (e.type === 'coin') {
@@ -248,28 +286,40 @@ export const updateGame = (
              ui.setRunCoins(refs.coinsRef.current);
              createExplosion(refs, ex, ey, COLORS.coin, 8, 8); 
              spawnFloatingText(refs, ex, ey, "+1 金币", COLORS.coin, 16);
-             if (isDirectHit) { const boost = 15.0 + player.radius / 300; player.rVelocity = Math.max(player.rVelocity + boost, boost); }
+             // Use wasHitNatural to prevent magnet from launching the player
+             if (wasHitNatural) { const boost = 15.0 + player.radius / 300; player.rVelocity = Math.max(player.rVelocity + boost, boost); }
              refs.entitiesRef.current.splice(i, 1);
         } else if (e.type === 'score') {
           refs.actionScoreRef.current += 10; createExplosion(refs, ex, ey, 'white', 8, 8); spawnFloatingText(refs, ex, ey, "+10", "#ffffff"); 
           
-          // --- PLAY SOUND HERE ---
           audioManager.playScore();
 
           if (hasMagnet) {
               player.magnetCount = (player.magnetCount || 0) + 1;
-              if (player.magnetCount >= 15) { player.magnetTime = 0; ui.setBuffs({ ...{ shield: player.shieldTime, magnet: 0, dash: player.dashTime } }); }
+              // Magnet Limitation Logic using Config
+              if (player.magnetCount >= cfg.buffs.magnetMaxCount) { 
+                  player.magnetTime = 0; // End magnet
+                  ui.setBuffs({ ...{ shield: player.shieldTime, magnet: 0, dash: player.dashTime } }); 
+              }
           }
-          if (isDirectHit) { const boost = 15.0 + player.radius / 300; player.rVelocity = Math.max(player.rVelocity + boost, boost); }
+          if (wasHitNatural) { const boost = 15.0 + player.radius / 300; player.rVelocity = Math.max(player.rVelocity + boost, boost); }
           if (e.isSafety) e.active = false; else refs.entitiesRef.current.splice(i, 1);
         } else if (e.type === 'shield') {
-          player.shieldTime = 400; triggerHaptic(8); 
+          // Shield Pickup
+          player.shieldTime = cfg.buffs.shieldDuration; 
+          player.shieldHits = cfg.buffs.shieldMaxHits;
+          triggerHaptic(8); 
           createExplosion(refs, ex, ey, COLORS.shield, 15); refs.entitiesRef.current.splice(i, 1);
         } else if (e.type === 'magnet') {
-          player.magnetTime = 600; player.magnetCount = 0; triggerHaptic(8); 
+          // Magnet Pickup
+          player.magnetTime = cfg.buffs.magnetDuration; 
+          player.magnetCount = 0; 
+          triggerHaptic(8); 
           createExplosion(refs, ex, ey, COLORS.magnet, 15); refs.entitiesRef.current.splice(i, 1);
         } else if (e.type === 'dash') {
-          player.dashTime = 150; triggerHaptic(8); 
+          // Dash Pickup
+          player.dashTime = cfg.buffs.dashDuration; 
+          triggerHaptic(8); 
           createExplosion(refs, ex, ey, COLORS.dash, 20); createShockwave(refs, ex, ey, COLORS.dash); refs.entitiesRef.current.splice(i, 1);
         } else if (e.type === 'nuke') {
           createExplosion(refs, ex, ey, COLORS.nuke, 20); createShockwave(refs, ex, ey, COLORS.nuke); refs.shake.current = 20;
@@ -288,9 +338,32 @@ export const updateGame = (
           refs.entitiesRef.current.splice(i, 1);
         } else if (e.type === 'enemy' && isDirectHit) {
             if (hasShield || hasDash || player.rVelocity > 0) {
-                createExplosion(refs, ex, ey, COLORS.enemy, 20); createShockwave(refs, ex, ey, COLORS.enemy);
-                triggerHaptic([12, 8, 25]); 
-                spawnFloatingText(refs, ex, ey, "+50", COLORS.enemy, 32); refs.shake.current = 10; refs.entitiesRef.current.splice(i, 1); refs.actionScoreRef.current += 50; 
+                // Determine collision outcome
+                let absorbHit = false;
+                
+                if (hasShield) {
+                    player.shieldHits -= 1;
+                    absorbHit = true;
+                    if (player.shieldHits <= 0) {
+                        player.shieldTime = 0; // Shield breaks
+                        createShockwave(refs, player.x, player.y, COLORS.shield);
+                        triggerHaptic([50, 100]); // Heavy hit feedback
+                    } else {
+                        triggerHaptic(30);
+                    }
+                } else if (hasDash) {
+                    absorbHit = true; // Dash is invincible
+                } else if (player.rVelocity > 0) {
+                    absorbHit = true; // Jumping up kills enemies
+                }
+
+                if (absorbHit) {
+                    createExplosion(refs, ex, ey, COLORS.enemy, 20); createShockwave(refs, ex, ey, COLORS.enemy);
+                    if (!hasShield) triggerHaptic([12, 8, 25]); 
+                    spawnFloatingText(refs, ex, ey, "+50", COLORS.enemy, 32); refs.shake.current = 10; refs.entitiesRef.current.splice(i, 1); refs.actionScoreRef.current += 50; 
+                } else {
+                    actions.triggerDyingSequence();
+                }
             } else actions.triggerDyingSequence();
         }
       }

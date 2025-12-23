@@ -1,6 +1,7 @@
 import React from 'react';
 import { Shield, Zap, Flame, Coins, Clock } from 'lucide-react';
 import { GameStateStatus } from '../../types';
+import { DEFAULT_GAME_CONFIG } from '../../constants';
 
 interface GameHUDProps {
   uiGameState: GameStateStatus;
@@ -67,16 +68,18 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       colorRing: 'text-green-500',
       colorBorder: 'border-green-500/30',
       icon: Shield,
-      max: 400
+      // Use fallback config for UI max visualization to avoid complex props passing. 
+      // The visual bar will just be relative to default, which is acceptable for HUD.
+      max: DEFAULT_GAME_CONFIG.buffs.shieldDuration 
     };
 
     if (type === 'magnet') {
-      config = { label: '磁力吸附', colorText: 'text-purple-400', colorRing: 'text-purple-500', colorBorder: 'border-purple-500/30', icon: Zap, max: 600 };
+      config = { label: '磁力吸附', colorText: 'text-purple-400', colorRing: 'text-purple-500', colorBorder: 'border-purple-500/30', icon: Zap, max: DEFAULT_GAME_CONFIG.buffs.magnetDuration };
     } else if (type === 'dash') {
-      config = { label: '极速冲刺', colorText: 'text-orange-400', colorRing: 'text-orange-500', colorBorder: 'border-orange-500/30', icon: Flame, max: 150 };
+      config = { label: '极速冲刺', colorText: 'text-orange-400', colorRing: 'text-orange-500', colorBorder: 'border-orange-500/30', icon: Flame, max: DEFAULT_GAME_CONFIG.buffs.dashDuration };
     }
 
-    const seconds = (value / 60).toFixed(1);
+    const seconds = value.toFixed(1);
     const progress = Math.min(100, Math.max(0, (value / config.max) * 100));
 
     return (

@@ -1,22 +1,15 @@
+import { GameConfig } from "./types";
 
-export const GAME_VERSION = "v8.9.1-SettingsSupport";
+export const GAME_VERSION = "v9.0.0-MerryXmas";
 
-export const PLAYER_CONFIG = {
-  baseRadius: 100,
-  accelOut: 0,    
-  gravity: 0.2, 
-  bonusGravity: 0.5, // 金币模式下的重力，比普通模式(0.2)重，增加下落速度感
-  drag: 0.94,     
-  rotSpeed: 0.04, 
-  dashRotSpeed: 0.08, 
-  size: 14,
-  trailLength: 15,
-};
+// Shared Cache Key for Themes & Config
+export const THEME_CACHE_KEY = 'leap_orbit_themes_list_v1';
+export const CONFIG_CACHE_KEY = 'leap_orbit_game_config_v1';
 
-export const MAX_ALTITUDE = 1500; 
-export const BONUS_DURATION_SECONDS = 10; // Explicitly 10 seconds
-export const BONUS_SCORE_THRESHOLD = 2000;
+// Default / Fallback BGM URL (Classic)
+export const DEFAULT_BGM_URL = 'https://raw.githubusercontent.com/juren233/leapoffthings/main/assets/bgm.mp3';
 
+// 颜色配置（纯视觉，通常不需要云控）
 export const COLORS = {
   player: '#00d2ff',
   enemy: '#ff3333',
@@ -30,5 +23,32 @@ export const COLORS = {
   grid: '#333333'
 };
 
-export const CENTER_SAFE_LIMIT = 300; 
-export const CENTER_DEATH_LIMIT = 480;
+// --- DEFAULT CONFIGURATION (FALLBACK) ---
+// 如果无法连接后端，使用此配置
+export const DEFAULT_GAME_CONFIG: GameConfig = {
+  player: {
+    baseRadius: 100,
+    accelOut: 0,    
+    gravity: 0.2, 
+    bonusGravity: 0.5, // 金币模式下的重力
+    drag: 0.94,     
+    rotSpeed: 0.04, 
+    dashRotSpeed: 0.08, 
+    size: 14,
+    trailLength: 15,
+  },
+  buffs: {
+    shieldDuration: 5,
+    shieldMaxHits: 2,
+    magnetDuration: 4,
+    magnetMaxCount: 15,
+    dashDuration: 3
+  },
+  gameParams: {
+    maxAltitude: 1500,
+    bonusDurationSeconds: 10,
+    bonusScoreThreshold: 2000,
+    centerSafeLimit: 0, // 进入中心即警告
+    centerDeathLimit: 3 // 3秒后死亡
+  }
+};

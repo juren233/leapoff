@@ -4,10 +4,11 @@
  */
 
 import { GameRefs, EntityType, Entity } from '../types';
-import { PLAYER_CONFIG, COLORS, MAX_ALTITUDE } from '../constants';
+import { COLORS } from '../constants';
 import { randomRange } from './utils';
 
 export const spawnSafetyRing = (refs: GameRefs, orbitNum: number) => {
+    const cfg = refs.configRef.current;
     if (refs.isBonusTimeRef.current) return;
     
     // Clean up old safety rings
@@ -18,7 +19,7 @@ export const spawnSafetyRing = (refs: GameRefs, orbitNum: number) => {
         const reduction = (orbitNum - 3) * 5;
         count = Math.max(0, 40 - reduction);
     }
-    const ringRadius = PLAYER_CONFIG.baseRadius + 80;
+    const ringRadius = cfg.player.baseRadius + 80;
     for(let i=0; i<count; i++) {
         refs.entitiesRef.current.push({
             id: refs.entityIdCounter.current++,
@@ -39,11 +40,12 @@ export const spawnSafetyRing = (refs: GameRefs, orbitNum: number) => {
     }
 };
 
-export const spawnInnerAmbience = (refs: GameRefs) => {
+export const spawnInnerAmbience = (refs: GameRefs, dt: number) => {
+    const cfg = refs.configRef.current;
     if (refs.isBonusTimeRef.current) return;
     if (refs.entitiesRef.current.length > 350) return;
     
-    const SAFE_ZONE_RADIUS = PLAYER_CONFIG.baseRadius + 300;
+    const SAFE_ZONE_RADIUS = cfg.player.baseRadius + 300;
     const currentInnerCount = refs.entitiesRef.current.filter(e => 
         e && e.type === 'score' && e.dist <= SAFE_ZONE_RADIUS && e.active
     ).length;
@@ -55,45 +57,100 @@ export const spawnInnerAmbience = (refs: GameRefs) => {
     }
     
     if (!refs.isFillingInnerZoneRef.current) return;
-    if (Math.random() > 0.15) return;
     
-    const dist = randomRange(PLAYER_CONFIG.baseRadius + 50, SAFE_ZONE_RADIUS);
-    let type: EntityType = 'score';
-    if (Math.random() < 0.02) {
-        const r = Math.random();
-        if (r < 0.33) type = 'shield';
-        else if (r < 0.66) type = 'magnet';
-        else type = 'dash';
-        if (type === 'magnet') type = 'score';
-    }
+    // --- TIME-BASED SPAWNING LOGIC ---
+    // dt=1.0 at 60fps. dt/60 is approx seconds elapsed.
+    refs.ambienceTimerRef.current += dt / 60;
 
-    const entity: Entity = {
-        id: refs.entityIdCounter.current++,
-        type,
-        angle: randomRange(0, Math.PI * 2),
-        dist,
-        active: true,
-        scale: 0,
-        maxScale: 1,
-        rotation: 0,
-        moveSpeed: randomRange(0.0012, 0.0025) * (Math.random() > 0.5 ? 1 : -1),
-        size: type === 'score' ? 12 : 16,
-        color: COLORS[type],
-        isSafety: false
-    };
-    refs.entitiesRef.current.push(entity);
+    // Target Rate: 40 per second (Very fast fill) -> Interval = 0.025s
+    const INTERVAL = 0.025; 
+
+    // Use while loop to handle lag spikes or high rates, ensuring we spawn exact count
+    while (refs.ambienceTimerRef.current >= INTERVAL) {
+        refs.ambienceTimerRef.current -= INTERVAL;
+
+        // Perform Spawn
+        const dist = randomRange(cfg.player.baseRadius + 50, SAFE_ZONE_RADIUS);
+        let type: EntityType = 'score';
+        if (Math.random() < 0.02) {
+            const r = Math.random();
+            if (r < 0.33) type = 'shield';
+            else if (r < 0.66) type = 'magnet';
+            else type = 'dash';
+            if (type === 'magnet') type = 'score';
+        }
+
+        const entity: Entity = {
+            id: refs.entityIdCounter.current++,
+            type,
+            angle: randomRange(0, Math.PI * 2),
+            dist,
+            active: true,
+            scale: 0,
+            maxScale: 1,
+            rotation: 0,
+            moveSpeed: randomRange(0.0012, 0.0025) * (Math.random() > 0.5 ? 1 : -1),
+            size: type === 'score' ? 12 : 16,
+            color: COLORS[type],
+            isSafety: false
+        };
+        refs.entitiesRef.current.push(entity);
+    }
 };
 
-export const spawnEntity = (refs: GameRefs) => {
-    const maxEntities = 350; 
-    if (refs.entitiesRef.current.length > maxEntities) return;
+export const spawnEntity = (refs: GameRefs, dt: number) => {
+    const cfg = refs.configRef.current;
+    // Hard limit on entities to prevent memory issues
+    if (refs.entitiesRef.current.length > 350) return;
     
+    // --- TIME-BASED ACCUMULATOR ---
+    refs.spawnTimerRef.current += dt / 60; // Accumulate seconds
+
+    let interval = 0.1; // Default fallback
+
+    if (refs.isBonusTimeRef.current) {
+        // 金币模式：极速生成 (约每秒 66 个)
+        interval = 0.015;
+    } else {
+        // 普通模式平衡调整：
+        // 目标：初始很快(爽感)，随分数和圈数增加逐渐变慢(防止过于混乱，增加博弈难度)
+        
+        const currentOrbit = refs.orbitRef.current;
+        const currentScore = refs.actionScoreRef.current;
+
+        // 基础间隔：0.06秒 (约每秒 16.6 个) - 起始非常快
+        const baseInterval = 0.06;
+
+        // 减速逻辑：
+        // 1. 分数影响：每 2000 分，间隔增加 0.01秒
+        const scoreSlowdown = (currentScore / 2000) * 0.01;
+        
+        // 2. 圈数影响：每增加 1 圈，间隔增加 0.015秒
+        // (后期玩家移动速度快，生成太密容易必死)
+        const orbitSlowdown = (currentOrbit * 0.015);
+
+        interval = baseInterval + scoreSlowdown + orbitSlowdown;
+
+        // 设定生成间隔上限（最慢 0.45秒生成一个，保证不会完全停止）
+        // 约每秒 2.2 个保底
+        interval = Math.min(0.45, interval);
+    }
+
+    // Process all due spawns
+    while (refs.spawnTimerRef.current >= interval) {
+        refs.spawnTimerRef.current -= interval;
+        spawnSingleEntity(refs);
+    }
+};
+
+// Extracted single spawn logic for cleaner loop
+const spawnSingleEntity = (refs: GameRefs) => {
+    const cfg = refs.configRef.current;
     const currentOrbit = refs.orbitRef.current;
     
-    // Bonus Mode Spawning Logic
+    // Bonus Mode Logic
     if (refs.isBonusTimeRef.current) {
-        if (Math.random() > 0.15) return; 
-        const spawnDist = randomRange(PLAYER_CONFIG.baseRadius + 50, MAX_ALTITUDE - 200);
+        const spawnDist = randomRange(cfg.player.baseRadius + 50, cfg.gameParams.maxAltitude - 200);
         refs.entitiesRef.current.push({
             id: refs.entityIdCounter.current++,
             type: 'coin',
@@ -106,15 +163,13 @@ export const spawnEntity = (refs: GameRefs) => {
             moveSpeed: randomRange(0.001, 0.003) * (Math.random() > 0.5 ? 1 : -1),
             size: 12,
             color: COLORS.coin,
-            isSafety: false
+            isSafety: false,
+            styleVariant: Math.floor(Math.random() * 4) // Random gift color 0-3
         });
         return;
     }
 
-    // Normal Spawning Logic
-    const spawnChance = Math.min(0.1, 0.0375 + (currentOrbit * 0.0025)); 
-    if (Math.random() > spawnChance) return;
-
+    // Normal Mode Type Selection
     const playerRadius = refs.playerRef.current.radius;
     let type: EntityType = 'score';
 
@@ -144,13 +199,13 @@ export const spawnEntity = (refs: GameRefs) => {
         }
     }
 
-    const baseSpawn = Math.max(PLAYER_CONFIG.baseRadius + 50, playerRadius - 500);
-    const ceilingSpawn = Math.min(playerRadius + 600, MAX_ALTITUDE - 200);
-    if (baseSpawn > MAX_ALTITUDE) return;
+    const baseSpawn = Math.max(cfg.player.baseRadius + 50, playerRadius - 500);
+    const ceilingSpawn = Math.min(playerRadius + 600, cfg.gameParams.maxAltitude - 200);
+    if (baseSpawn > cfg.gameParams.maxAltitude) return;
     
     const spawnDist = randomRange(baseSpawn, ceilingSpawn);
-    if (type === 'magnet' && spawnDist < PLAYER_CONFIG.baseRadius + 600) type = 'score';
-    const ENEMY_SAFE_DIST = PLAYER_CONFIG.baseRadius + 300;
+    if (type === 'magnet' && spawnDist < cfg.player.baseRadius + 600) type = 'score';
+    const ENEMY_SAFE_DIST = cfg.player.baseRadius + 300;
     if (type === 'enemy' && spawnDist < ENEMY_SAFE_DIST) type = 'score';
 
     const spawnAngle = randomRange(0, Math.PI * 2);
